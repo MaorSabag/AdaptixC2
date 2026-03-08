@@ -1,6 +1,6 @@
 package eventing
 
-import "github.com/Adaptix-Framework/axc2"
+import adaptix "github.com/Adaptix-Framework/axc2"
 
 type EventType string
 
@@ -99,6 +99,7 @@ type EventDataAgentGenerate struct {
 	Config        string
 	FileName      string
 	FileContent   []byte
+	BuilderId	  string
 }
 
 type EventDataAgentCheckin struct {

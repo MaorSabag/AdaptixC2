@@ -11,7 +11,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Adaptix-Framework/axc2"
+	adaptix "github.com/Adaptix-Framework/axc2"
 	"github.com/gorilla/websocket"
 )
 
@@ -137,16 +137,25 @@ func (ts *Teamserver) TsAgentBuildCreateChannel(buildData string, wsconn *websoc
 
 	// --- POST HOOK ---
 	postEvent = &eventing.EventDataAgentGenerate{
-		AgentName:     builder.Name,
-		ListenersName: builder.ListenersName,
-		Config:        builder.Config,
-		FileName:      fileName,
-		FileContent:   fileContent,
+		AgentName:     	builder.Name,
+		ListenersName: 	builder.ListenersName,
+		Config:        	builder.Config,
+		FileName:      	fileName,
+		FileContent:   	fileContent,
+		BuilderId: 		builder.Id,
 	}
-	ts.EventManager.EmitAsync(eventing.EventAgentGenerate, postEvent)
+	// ts.EventManager.EmitAsync(eventing.EventAgentGenerate, postEvent)
+	if !ts.EventManager.Emit(eventing.EventAgentGenerate, eventing.HookPost, postEvent) {
+		if postEvent.Error != nil {
+			_ = ts.TsAgentBuildLog(builder.Id, adaptix.BUILD_LOG_ERROR, "Error: "+postEvent.Error.Error())
+		} else {
+			_ = ts.TsAgentBuildLog(builder.Id, adaptix.BUILD_LOG_ERROR, "Error: operation cancelled by hook")
+		}
+		goto RET
+	}
 	// -----------------
 
-	_ = ts.TsAgentBuildSendFile(builder.Id, fileName, fileContent)
+	_ = ts.TsAgentBuildSendFile(builder.Id, postEvent.FileName, postEvent.FileContent)
 
 RET:
 	ts.TsAgentBuildClose(builder.Id)
