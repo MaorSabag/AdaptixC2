@@ -1,6 +1,8 @@
 #include "Commander.h"
 #include "bof_loader.h"
 #include "Boffer.h"
+#include "main.h"
+#include "Connector.h"
 
 extern HANDLE g_StoredToken;
 

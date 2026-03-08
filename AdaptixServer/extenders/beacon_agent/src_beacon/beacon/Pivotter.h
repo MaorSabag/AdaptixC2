@@ -10,8 +10,6 @@
 #define PIVOT_TYPE_SMB		  1
 #define PIVOT_TYPE_TCP		  2
 #define PIVOT_TYPE_DISCONNECT 10
-
-
 struct SMBAsyncIO {
 	OVERLAPPED ovRead;      
 	DWORD      rdHeader;    
@@ -32,6 +30,7 @@ class Pivotter
 public:
 	Vector<PivotData> pivots;
 	BOOL  pendingWrite         = FALSE;
+
 	BOOL  pendingSMBChildReply  = FALSE;
 	DWORD lastSMBChildWriteTick = 0;  
 

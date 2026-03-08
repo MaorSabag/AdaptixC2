@@ -90,7 +90,6 @@ DWORD WINAPI AgentMain(LPVOID lpParam)
 			if (g_Agent->IsActive()) {
 				BOOL hasOutput = (packerOut->datasize() >= 8);
 #if defined(BEACON_SMB) || defined(BEACON_TCP)
-
 				if (justSentOutput)
 					hasOutput = TRUE;
 
@@ -100,7 +99,6 @@ DWORD WINAPI AgentMain(LPVOID lpParam)
 					         || (g_Agent->jober->jobs.size() > 0);
 				}
 #endif
-
 				DWORD pollIntervalMs = 0;
 #if defined(BEACON_SMB)
 				for (int _pi = 0; _pi < (int)g_Agent->pivotter->pivots.size(); _pi++) {

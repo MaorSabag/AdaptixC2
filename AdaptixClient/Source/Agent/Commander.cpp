@@ -1071,10 +1071,6 @@ void Commander::CmdTerminate(ULONG commandId, Packer* inPacker, Packer* outPacke
 	agent->config->exit_task_id = inPacker->Unpack32();
 	agent->Active = FALSE;
 
-	// Unblock the connector's Sleep() (WaitForMultipleObjects) so the
-	// main loop can proceed to the exit path without delay.
-	// if (g_Connector)
-	// 	g_Connector->SignalTermination();
 }
 
 void Commander::CmdTunnelMsgConnectTCP(ULONG commandId, Packer* inPacker, Packer* outPacker) 

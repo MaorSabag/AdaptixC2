@@ -127,6 +127,7 @@ WideCharToMultiByte
 WriteFile
 WaitForSingleObjectEx
 GetOverlappedResult
+CancelIo
 
 
 // iphlpapi
