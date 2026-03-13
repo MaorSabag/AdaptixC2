@@ -569,41 +569,33 @@ LPSTR StrLCopyA(LPSTR dst, LPCSTR src, int iMaxLength)
     return dst;
 }
 
-ULONG FileTimeToUnixTimestamp(FILETIME ft) 
-{
+static unsigned char subborrow_u32(
+    unsigned char borrow_in,
+    unsigned int a,
+    unsigned int b,
+    unsigned int *out
+){
+    unsigned int t = a - b;
+    unsigned int r = t - borrow_in;
+
+    *out = r;
+
+    return (a < b) || (borrow_in && t == 0);
+}
+
+ULONG FileTimeToUnixTimestamp(FILETIME ft) {
     ULARGE_INTEGER uli;
-    uli.LowPart = ft.dwLowDateTime;
-    uli.HighPart = ft.dwHighDateTime;
+    uli.HighPart = ft.dwHighDateTime;   // swapped
+    uli.LowPart  = ft.dwLowDateTime;
 
-    const DWORD EPOCH_DIFFERENCE_LOW  = 0xD53E8000; 
-    const DWORD EPOCH_DIFFERENCE_HIGH = 0x019DB1DE; 
+    // Branchless borrow subtraction
+    unsigned char borrow = 0;
+    borrow = subborrow_u32(0,     uli.LowPart,  0xD53E8000UL, &uli.LowPart);
+             subborrow_u32(borrow, uli.HighPart, 0x019DB1DEUL, &uli.HighPart);
 
-    if (uli.LowPart < EPOCH_DIFFERENCE_LOW) {
-        uli.LowPart -= EPOCH_DIFFERENCE_LOW;
-        uli.HighPart -= EPOCH_DIFFERENCE_HIGH + 1;
-    }
-    else {
-        uli.LowPart -= EPOCH_DIFFERENCE_LOW;
-        uli.HighPart -= EPOCH_DIFFERENCE_HIGH;
-    }
-
-    DWORD quotient = 0;
-    DWORD remainder = 0;
-    for (int i = 63; i >= 0; i--) {
-        remainder <<= 1;
-        if (i >= 32) {
-            remainder |= (uli.HighPart >> (i - 32)) & 1;
-        }
-        else {
-            remainder |= (uli.LowPart >> i) & 1;
-        }
-
-        if (remainder >= 10000000) {
-            remainder -= 10000000;
-            quotient |= (1UL << i);
-        }
-    }
-    return quotient;
+    // Replace hand-rolled division with compiler-optimized form
+    ULONGLONG combined = ((ULONGLONG)uli.HighPart << 32) | uli.LowPart;
+    return (ULONG)(combined / 10000000ULL);
 }
 
 ULONG GetSystemTimeAsUnixTimestamp()
