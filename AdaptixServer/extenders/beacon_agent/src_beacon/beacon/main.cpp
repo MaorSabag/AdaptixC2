@@ -107,11 +107,7 @@ extern "C" __declspec(dllexport) void CALLBACK GetVersions(HWND hwnd, HINSTANCE 
     InitializeSynchronization();
 
     if (InterlockedCompareExchange(&g_AgentInitialized, TRUE, FALSE) == FALSE) {
-        HANDLE hThread = CreateThread(NULL, 0, AgentMain, NULL, 0, NULL);
-        if (hThread) {
-            WaitForSingleObject(hThread, INFINITE); // Wait for thread completion when called directly
-            CloseHandle(hThread);
-        }
+        AgentMain(NULL);
     }
 }
 
