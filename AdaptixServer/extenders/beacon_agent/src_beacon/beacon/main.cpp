@@ -92,24 +92,23 @@ void run()
 
     // Attempt to acquire initialization ownership
     if (InterlockedCompareExchange(&g_AgentInitialized, TRUE, FALSE) == FALSE) {
-        // Create agent thread without blocking
         AgentMain(NULL);
     }
 }
 
-extern "C" __declspec(dllexport) void CALLBACK GetVersions(HWND hwnd, HINSTANCE hinst, LPSTR lpszCmdLine, int nCmdShow)
-{
-    // Mark as directly called to prevent automatic execution
-    InitializeSynchronization();
+// extern "C" __declspec(dllexport) void CALLBACK GetVersions(HWND hwnd, HINSTANCE hinst, LPSTR lpszCmdLine, int nCmdShow)
+// {
+//     // Mark as directly called to prevent automatic execution
+//     InitializeSynchronization();
 
-    if (InterlockedCompareExchange(&g_AgentInitialized, TRUE, FALSE) == FALSE) {
-        HANDLE hThread = CreateThread(NULL, 0, AgentMain, NULL, 0, NULL);
-        if (hThread) {
-            WaitForSingleObject(hThread, INFINITE); // Wait for thread completion when called directly
-            CloseHandle(hThread);
-        }
-    }
-}
+//     if (InterlockedCompareExchange(&g_AgentInitialized, TRUE, FALSE) == FALSE) {
+//         HANDLE hThread = CreateThread(NULL, 0, AgentMain, NULL, 0, NULL);
+//         if (hThread) {
+//             WaitForSingleObject(hThread, INFINITE); // Wait for thread completion when called directly
+//             CloseHandle(hThread);
+//         }
+//     }
+// }
 
 VOID CALLBACK InitializationCallback(PTP_CALLBACK_INSTANCE Instance, PVOID Context, PTP_TIMER Timer)
 {

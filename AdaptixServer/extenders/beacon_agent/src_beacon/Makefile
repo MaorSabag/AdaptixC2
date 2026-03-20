@@ -36,7 +36,6 @@ OPTIMIZATION_FLAGS := 	-fno-exceptions \
                      	-fasynchronous-unwind-tables \
                      	-mabi=ms
 
-
 COMMON_FLAGS := -I $(BEACON_DIR) \
                 -fpermissive \
                 -w \

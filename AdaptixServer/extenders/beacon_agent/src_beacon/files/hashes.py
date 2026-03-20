@@ -128,6 +128,10 @@ WriteFile
 WaitForSingleObjectEx
 GetOverlappedResult
 CancelIo
+RtlAddFunctionTable
+RtlDeleteFunctionTable
+VirtualProtect
+LoadLibraryExA
 
 
 // iphlpapi

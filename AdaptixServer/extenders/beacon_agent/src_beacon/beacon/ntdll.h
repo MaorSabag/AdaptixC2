@@ -22335,6 +22335,7 @@ LdrQueryProcessModuleInformation(
 	);
 
 
+
 //
 // end non-crt prototypes
 //
