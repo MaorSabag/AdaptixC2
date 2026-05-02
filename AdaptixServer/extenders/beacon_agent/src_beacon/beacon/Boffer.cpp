@@ -37,27 +37,29 @@ BOOL Boffer::Initialize()
     this->wakeupEvent = ApiWin->CreateEventA(NULL, TRUE, FALSE, NULL);
     if (!this->wakeupEvent)
         return FALSE;
-    
+
     ApiWin->InitializeCriticalSection(&this->managerLock);
 
-    if (isBofStompEnabled()) {
-        if (!InitBofStomp(getBofStompDll(), getBofStompMethod())) {
-        }
-    }
+    // Stomp context is now created per-execution (in ObjectExecute and
+    // AsyncBofThreadProc), so there is nothing to initialise here globally.
+
     return TRUE;
 }
 
-AsyncBofContext* Boffer::CreateAsyncBof(ULONG taskId, CHAR* entryName, BYTE* coffFile, ULONG coffFileSize, BYTE* args, ULONG argsSize)
+AsyncBofContext* Boffer::CreateAsyncBof(ULONG taskId, CHAR* entryName,
+                                         BYTE* coffFile, ULONG coffFileSize,
+                                         BYTE* args, ULONG argsSize)
 {
     AsyncBofContext* ctx = (AsyncBofContext*)MemAllocLocal(sizeof(AsyncBofContext));
     if (!ctx)
         return NULL;
-    
+
     memset(ctx, 0, sizeof(AsyncBofContext));
-    
-    ctx->taskId = taskId;
-    ctx->state = ASYNC_BOF_STATE_PENDING;
-    
+
+    ctx->taskId   = taskId;
+    ctx->state    = ASYNC_BOF_STATE_PENDING;
+    ctx->stompCtx = NULL;
+
     ctx->coffFile = (BYTE*)MemAllocLocal(coffFileSize);
     if (!ctx->coffFile) {
         MemFreeLocal((LPVOID*)&ctx, sizeof(AsyncBofContext));
@@ -65,7 +67,7 @@ AsyncBofContext* Boffer::CreateAsyncBof(ULONG taskId, CHAR* entryName, BYTE* cof
     }
     memcpy(ctx->coffFile, coffFile, coffFileSize);
     ctx->coffFileSize = coffFileSize;
-    
+
     if (args && argsSize > 0) {
         ctx->args = (BYTE*)MemAllocLocal(argsSize);
         if (!ctx->args) {
@@ -76,7 +78,7 @@ AsyncBofContext* Boffer::CreateAsyncBof(ULONG taskId, CHAR* entryName, BYTE* cof
         memcpy(ctx->args, args, argsSize);
         ctx->argsSize = argsSize;
     }
-    
+
     ULONG entryLen = StrLenA(entryName) + 1;
     ctx->entryName = (CHAR*)MemAllocLocal(entryLen);
     if (!ctx->entryName) {
@@ -87,7 +89,7 @@ AsyncBofContext* Boffer::CreateAsyncBof(ULONG taskId, CHAR* entryName, BYTE* cof
         return NULL;
     }
     memcpy(ctx->entryName, entryName, entryLen);
-    
+
     ctx->hStopEvent = ApiWin->CreateEventA(NULL, TRUE, FALSE, NULL);
     if (!ctx->hStopEvent) {
         MemFreeLocal((LPVOID*)&ctx->entryName, entryLen);
@@ -97,10 +99,10 @@ AsyncBofContext* Boffer::CreateAsyncBof(ULONG taskId, CHAR* entryName, BYTE* cof
         MemFreeLocal((LPVOID*)&ctx, sizeof(AsyncBofContext));
         return NULL;
     }
-    
+
     ApiWin->InitializeCriticalSection(&ctx->outputLock);
     ctx->outputBuffer = new Packer();
-    
+
     return ctx;
 }
 
@@ -119,16 +121,26 @@ DWORD WINAPI AsyncBofThreadProc(LPVOID lpParameter)
     COF_HEADER* pHeader      = (COF_HEADER*)ctx->coffFile;
     COF_SYMBOL* pSymbolTable = (COF_SYMBOL*)(ctx->coffFile + pHeader->PointerToSymbolTable);
 
-    /* AllocateSections now returns mapFunctions alongside sections */
-    BOOL result = AllocateSections(ctx->coffFile, pHeader, ctx->mapSections, &ctx->mapFunctions);
+
+    if (isBofStompEnabled())
+        ctx->stompCtx = BofStompCreate(getBofStompDllAsync(), getBofStompMethod());
+
+    BOOL result = AllocateSections(ctx->coffFile, pHeader, ctx->mapSections,
+                                   &ctx->mapFunctions, ctx->stompCtx);
     if (!result) {
+
+        if (ctx->stompCtx) {
+            BofStompDestroy(ctx->stompCtx);
+            ctx->stompCtx = NULL;
+        }
         ctx->state = ASYNC_BOF_STATE_FINISHED;
         tls_CurrentBofContext = NULL;
         return 1;
     }
 
     if (!ctx->mapFunctions) {
-        CleanupSections(ctx->mapSections, MAX_SECTIONS, NULL);
+        CleanupSections(ctx->mapSections, MAX_SECTIONS, NULL, ctx->stompCtx);
+        ctx->stompCtx = NULL; // freed by CleanupSections
         ctx->state = ASYNC_BOF_STATE_FINISHED;
         tls_CurrentBofContext = NULL;
         return 1;
@@ -137,7 +149,8 @@ DWORD WINAPI AsyncBofThreadProc(LPVOID lpParameter)
     result = ProcessRelocations(ctx->coffFile, pHeader, ctx->mapSections,
                                 pSymbolTable, (LPVOID*)ctx->mapFunctions);
     if (!result) {
-        CleanupSections(ctx->mapSections, MAX_SECTIONS, ctx->mapFunctions);
+        CleanupSections(ctx->mapSections, MAX_SECTIONS, ctx->mapFunctions, ctx->stompCtx);
+        ctx->stompCtx    = NULL;
         ctx->mapFunctions = NULL;
         ctx->state = ASYNC_BOF_STATE_FINISHED;
         tls_CurrentBofContext = NULL;
@@ -153,12 +166,12 @@ DWORD WINAPI AsyncBofThreadProc(LPVOID lpParameter)
     CHAR* entryFuncName = PrepareEntryName(ctx->entryName);
     if (entryFuncName) {
         ExecuteProc(entryFuncName, ctx->args, ctx->argsSize,
-                    pSymbolTable, pHeader, ctx->mapSections);
+                    pSymbolTable, pHeader, ctx->mapSections, ctx->stompCtx);
         FreeFunctionName(entryFuncName);
     }
 
-    /* Cleanup — restores winmm .text and releases lock if stomping was used */
-    CleanupSections(ctx->mapSections, MAX_SECTIONS, ctx->mapFunctions);
+    CleanupSections(ctx->mapSections, MAX_SECTIONS, ctx->mapFunctions, ctx->stompCtx);
+    ctx->stompCtx    = NULL;
     ctx->mapFunctions = NULL;
 
     ApiWin->EnterCriticalSection(&ctx->outputLock);
@@ -180,17 +193,17 @@ BOOL Boffer::StartAsyncBof(AsyncBofContext* ctx)
 {
     if (!ctx)
         return FALSE;
-    
+
     ApiWin->EnterCriticalSection(&this->managerLock);
-    
+
     ctx->hThread = ApiWin->CreateThread(NULL, 0, AsyncBofThreadProc, ctx, 0, &ctx->threadId);
     if (!ctx->hThread) {
         ApiWin->LeaveCriticalSection(&this->managerLock);
         return FALSE;
     }
-    
+
     this->asyncBofs.push_back(ctx);
-    
+
     ApiWin->LeaveCriticalSection(&this->managerLock);
     return TRUE;
 }
@@ -198,10 +211,10 @@ BOOL Boffer::StartAsyncBof(AsyncBofContext* ctx)
 BOOL Boffer::StopAsyncBof(ULONG taskId)
 {
     HANDLE hThread = NULL;
-    BOOL   found = FALSE;
+    BOOL   found   = FALSE;
 
     ApiWin->EnterCriticalSection(&this->managerLock);
-    
+
     for (size_t i = 0; i < this->asyncBofs.size(); i++) {
         if (this->asyncBofs[i]->taskId == taskId) {
             AsyncBofContext* ctx = this->asyncBofs[i];
@@ -215,7 +228,7 @@ BOOL Boffer::StopAsyncBof(ULONG taskId)
             break;
         }
     }
-    
+
     ApiWin->LeaveCriticalSection(&this->managerLock);
 
     if (!found)
@@ -234,19 +247,19 @@ void Boffer::ProcessAsyncBofs(Packer* outPacker)
 {
     if (!outPacker || this->asyncBofs.size() == 0)
         return;
-    
+
     ApiWin->EnterCriticalSection(&this->managerLock);
-    
+
     for (size_t i = 0; i < this->asyncBofs.size(); i++) {
         AsyncBofContext* ctx = this->asyncBofs[i];
-        
+
         BOOL threadAlive = FALSE;
         if (ctx->hThread) {
             DWORD exitCode = 0;
             ApiWin->GetExitCodeThread(ctx->hThread, &exitCode);
             threadAlive = (exitCode == STILL_ACTIVE);
         }
-        
+
         if (threadAlive) {
             if (ApiWin->TryEnterCriticalSection(&ctx->outputLock)) {
                 if (ctx->outputBuffer && ctx->outputBuffer->datasize() > 0) {
@@ -264,9 +277,9 @@ void Boffer::ProcessAsyncBofs(Packer* outPacker)
                 ctx->state = ASYNC_BOF_STATE_FINISHED;
         }
     }
-    
+
     ApiWin->LeaveCriticalSection(&this->managerLock);
-    
+
     CleanupFinishedBofs();
 }
 
@@ -275,16 +288,17 @@ void Boffer::CleanupFinishedBofs()
     Vector<AsyncBofContext*> pending;
 
     ApiWin->EnterCriticalSection(&this->managerLock);
-    
+
     for (size_t i = 0; i < this->asyncBofs.size(); i++) {
         AsyncBofContext* ctx = this->asyncBofs[i];
-        if (ctx->state == ASYNC_BOF_STATE_FINISHED || ctx->state == ASYNC_BOF_STATE_STOPPED) {
+        if (ctx->state == ASYNC_BOF_STATE_FINISHED ||
+            ctx->state == ASYNC_BOF_STATE_STOPPED) {
             pending.push_back(ctx);
             this->asyncBofs.remove(i);
             --i;
         }
     }
-    
+
     ApiWin->LeaveCriticalSection(&this->managerLock);
 
     for (size_t i = 0; i < pending.size(); i++)
@@ -297,7 +311,7 @@ void Boffer::CleanupBofContext(AsyncBofContext* ctx)
 {
     if (!ctx)
         return;
-    
+
     if (ctx->hThread) {
         ApiWin->WaitForSingleObject(ctx->hThread, 5000);
         DWORD exitCode = 0;
@@ -307,39 +321,40 @@ void Boffer::CleanupBofContext(AsyncBofContext* ctx)
         ApiNt->NtClose(ctx->hThread);
         ctx->hThread = NULL;
     }
-    
+
     if (ctx->hStopEvent) {
         ApiNt->NtClose(ctx->hStopEvent);
         ctx->hStopEvent = NULL;
     }
 
-    CleanupSections(ctx->mapSections, MAX_SECTIONS, ctx->mapFunctions);
+    CleanupSections(ctx->mapSections, MAX_SECTIONS, ctx->mapFunctions, ctx->stompCtx);
+    ctx->stompCtx    = NULL;
     ctx->mapFunctions = NULL;
-    
+
     if (ctx->coffFile)
         MemFreeLocal((LPVOID*)&ctx->coffFile, ctx->coffFileSize);
-    
+
     if (ctx->args)
         MemFreeLocal((LPVOID*)&ctx->args, ctx->argsSize);
-    
+
     if (ctx->entryName)
         MemFreeLocal((LPVOID*)&ctx->entryName, StrLenA(ctx->entryName) + 1);
 
     ApiWin->DeleteCriticalSection(&ctx->outputLock);
-    
+
     if (ctx->outputBuffer) {
         ctx->outputBuffer->Clear(FALSE);
         delete ctx->outputBuffer;
         ctx->outputBuffer = NULL;
     }
-    
+
     MemFreeLocal((LPVOID*)&ctx, sizeof(AsyncBofContext));
 }
 
 AsyncBofContext* Boffer::FindBofByThreadId(DWORD threadId)
 {
     ApiWin->EnterCriticalSection(&this->managerLock);
-    
+
     AsyncBofContext* result = NULL;
     for (size_t i = 0; i < this->asyncBofs.size(); i++) {
         if (this->asyncBofs[i]->threadId == threadId) {
@@ -347,7 +362,7 @@ AsyncBofContext* Boffer::FindBofByThreadId(DWORD threadId)
             break;
         }
     }
-    
+
     ApiWin->LeaveCriticalSection(&this->managerLock);
     return result;
 }

@@ -13,5 +13,6 @@ int isIatHidingEnabled();
 int isBofStompEnabled();
 
 char* getBofStompDll();
+char* getBofStompDllAsync();
 
 int getBofStompMethod();
