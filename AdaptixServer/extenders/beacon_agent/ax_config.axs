@@ -350,8 +350,8 @@ function GenerateUI(listeners_type)
     textBofStompDll.setPlaceholder("e.g. wmp.dll, xpsservices.dll");
 
     let labelBofStompDllAsync = form.create_label("Stomp DLL (async):");
-    let textBofStompDllAsync = form.create_textline("winspool.drv");
-    textBofStompDllAsync.setPlaceholder("e.g. winspool.drv, xpsservices.dll");
+    let textBofStompDllAsync = form.create_textline("Hydrogen.dll");
+    textBofStompDllAsync.setPlaceholder("e.g. Hydrogen.dll, xpsservices.dll");
 
     let labelBofStompMethod = form.create_label("Method:");
     let comboBofStompMethod = form.create_combo();

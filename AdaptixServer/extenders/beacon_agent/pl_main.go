@@ -586,7 +586,7 @@ func (p *PluginAgent) BuildPayload(profile adaptix.BuildProfile, agentProfiles [
 		}
 		bofStompDllAsync = generateConfig.BofStompDllAsync
 		if bofStompDllAsync == "" {
-			bofStompDllAsync = "winspool.drv"
+			bofStompDllAsync = "Hydrogen.dll"
 		}
 	}
 
