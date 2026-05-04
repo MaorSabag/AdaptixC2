@@ -279,6 +279,7 @@ type GenerateConfig struct {
 	IatHiding          bool   `json:"iat_hiding"`
 	UseBofStomp        bool   `json:"use_bof_stomp"`
 	BofStompDll        string `json:"bof_stomp_dll"`
+	BofStompDllAsync   string `json:"bof_stomp_dll_async"`
 	BofStompMethod     string `json:"bof_stomp_method"`
 	IsSideloading      bool   `json:"is_sideloading"`
 	SideloadingContent string `json:"sideloading_content"`
@@ -576,11 +577,16 @@ func (p *PluginAgent) BuildPayload(profile adaptix.BuildProfile, agentProfiles [
 
 	// BOF Module Stomping: only enabled when the user checks the groupbox
 	bofStompDll := ""
+	bofStompDllAsync := ""
 	if generateConfig.UseBofStomp {
 		cFlags += " -DUSE_BOF_STOMP"
 		bofStompDll = generateConfig.BofStompDll
 		if bofStompDll == "" {
 			bofStompDll = "wmp.dll"
+		}
+		bofStompDllAsync = generateConfig.BofStompDllAsync
+		if bofStompDllAsync == "" {
+			bofStompDllAsync = "winspool.drv"
 		}
 	}
 
@@ -632,7 +638,7 @@ func (p *PluginAgent) BuildPayload(profile adaptix.BuildProfile, agentProfiles [
 		if generateConfig.BofStompMethod == "NtCreateSection + NtMapViewOfSection" {
 			bofStompMethod = 1
 		}
-		bofStompDefine = fmt.Sprintf(" -DBOF_STOMP_DLL_NAME='\"%s\"' -DBOF_STOMP_METHOD=%d", bofStompDll, bofStompMethod)
+		bofStompDefine = fmt.Sprintf(" -DBOF_STOMP_DLL_NAME='\"%s\"' -DBOF_STOMP_DLL_NAME_ASYNC='\"%s\"' -DBOF_STOMP_METHOD=%d", bofStompDll, bofStompDllAsync, bofStompMethod)
 	}
 	if generateConfig.Format == "Service Exe" {
 		cmdConfig = fmt.Sprintf("%s %s %s/config.cpp -DBUILD_SVC -DSERVICE_NAME='\"%s\"' -DPROFILE='\"%s\"' -DPROFILE_SIZE=%d%s -o %s/config.o", Compiler, cFlags, ObjectDir, svcName, string(agentProfile), agentProfileSize, bofStompDefine, tempDir)
