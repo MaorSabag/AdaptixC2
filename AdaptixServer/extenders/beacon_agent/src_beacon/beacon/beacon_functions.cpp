@@ -8,6 +8,17 @@
 
 HANDLE  g_StoredToken   = NULL;
 
+// Globals para el path SÍNCRONO — misma semántica que el original.
+// El path async usa ctx->outputBuffer vía tls_CurrentBofContext.
+Packer* bofOutputPacker = NULL;
+ULONG   bofTaskId       = 0;
+
+void InitBofOutputData()
+{
+    if (bofOutputPacker == NULL)
+        bofOutputPacker = new Packer();
+}
+
 static void BofOutputToContext(AsyncBofContext* ctx, int type, PBYTE data, int dataSize)
 {
     if (!ctx || !ctx->outputBuffer)
@@ -23,7 +34,22 @@ static void BofOutputToContext(AsyncBofContext* ctx, int type, PBYTE data, int d
 
 void BofOutputToTask(int type, PBYTE data, int dataSize)
 {
-    BofOutputToContext(tls_CurrentBofContext, type, data, dataSize);
+    // Si hay un contexto async en TLS (hilo del monitor u otro async BOF),
+    // escribir al buffer propio del contexto. De lo contrario (hilo principal
+    // ejecutando un BOF síncrono), escribir al bofOutputPacker global.
+    // Esto preserva exactamente la semántica del original y evita que
+    // ObjectExecute toque tls_CurrentBofContext del hilo principal.
+    if (tls_CurrentBofContext) {
+        BofOutputToContext(tls_CurrentBofContext, type, data, dataSize);
+        return;
+    }
+
+    if (bofOutputPacker) {
+        bofOutputPacker->Pack32(bofTaskId);
+        bofOutputPacker->Pack32(51);  // COMMAND_EXEC_BOF_OUT
+        bofOutputPacker->Pack32(type);
+        bofOutputPacker->PackBytes(data, dataSize);
+    }
 }
 
 BOOL IsAsyncBofThread()
@@ -467,30 +493,44 @@ BOOL proxy_FreeLibrary(HMODULE hLibModule)
 
 void AxAddScreenshot(char* note, char* data, int len)
 {
-	AsyncBofContext* ctx = tls_CurrentBofContext;
-	if (!ctx || !ctx->outputBuffer)
+	if (tls_CurrentBofContext) {
+		AsyncBofContext* ctx = tls_CurrentBofContext;
+		ApiWin->EnterCriticalSection(&ctx->outputLock);
+		ctx->outputBuffer->Pack32(ctx->taskId);
+		ctx->outputBuffer->Pack32(51);
+		ctx->outputBuffer->Pack32(CALLBACK_AX_SCREENSHOT);
+		ctx->outputBuffer->PackStringA(note);
+		ctx->outputBuffer->PackBytes((PBYTE)data, len);
+		ApiWin->LeaveCriticalSection(&ctx->outputLock);
 		return;
-
-	ApiWin->EnterCriticalSection(&ctx->outputLock);
-	ctx->outputBuffer->Pack32(ctx->taskId);
-	ctx->outputBuffer->Pack32(51);
-	ctx->outputBuffer->Pack32(CALLBACK_AX_SCREENSHOT);
-	ctx->outputBuffer->PackStringA(note);
-	ctx->outputBuffer->PackBytes((PBYTE)data, len);
-	ApiWin->LeaveCriticalSection(&ctx->outputLock);
+	}
+	if (bofOutputPacker) {
+		bofOutputPacker->Pack32(bofTaskId);
+		bofOutputPacker->Pack32(51);
+		bofOutputPacker->Pack32(CALLBACK_AX_SCREENSHOT);
+		bofOutputPacker->PackStringA(note);
+		bofOutputPacker->PackBytes((PBYTE)data, len);
+	}
 }
 
 void AxDownloadMemory(char* filename, char* data, int len)
 {
-	AsyncBofContext* ctx = tls_CurrentBofContext;
-	if (!ctx || !ctx->outputBuffer)
+	if (tls_CurrentBofContext) {
+		AsyncBofContext* ctx = tls_CurrentBofContext;
+		ApiWin->EnterCriticalSection(&ctx->outputLock);
+		ctx->outputBuffer->Pack32(ctx->taskId);
+		ctx->outputBuffer->Pack32(51);
+		ctx->outputBuffer->Pack32(CALLBACK_AX_DOWNLOAD_MEM);
+		ctx->outputBuffer->PackStringA(filename);
+		ctx->outputBuffer->PackBytes((PBYTE)data, len);
+		ApiWin->LeaveCriticalSection(&ctx->outputLock);
 		return;
-
-	ApiWin->EnterCriticalSection(&ctx->outputLock);
-	ctx->outputBuffer->Pack32(ctx->taskId);
-	ctx->outputBuffer->Pack32(51);
-	ctx->outputBuffer->Pack32(CALLBACK_AX_DOWNLOAD_MEM);
-	ctx->outputBuffer->PackStringA(filename);
-	ctx->outputBuffer->PackBytes((PBYTE)data, len);
-	ApiWin->LeaveCriticalSection(&ctx->outputLock);
+	}
+	if (bofOutputPacker) {
+		bofOutputPacker->Pack32(bofTaskId);
+		bofOutputPacker->Pack32(51);
+		bofOutputPacker->Pack32(CALLBACK_AX_DOWNLOAD_MEM);
+		bofOutputPacker->PackStringA(filename);
+		bofOutputPacker->PackBytes((PBYTE)data, len);
+	}
 }

