@@ -47,7 +47,7 @@ char* getBofStompDllAsync()
 #if defined(BOF_STOMP_DLL_NAME_ASYNC)
 	return (char*) BOF_STOMP_DLL_NAME_ASYNC;
 #else
-	return (char*)"Hydrogen.dll";
+	return (char*)"xpsservices.dll";
 #endif
 }
 
