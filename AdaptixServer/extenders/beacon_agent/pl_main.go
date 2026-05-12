@@ -279,7 +279,7 @@ type GenerateConfig struct {
 	IatHiding          bool   `json:"iat_hiding"`
 	UseBofStomp        bool   `json:"use_bof_stomp"`
 	BofStompDll        string `json:"bof_stomp_dll"`
-	BofStompDllAsync   string `json:"bof_stomp_dll_async"`
+	BofStompDllsAsync  []string `json:"bof_stomp_dll_async"`
 	BofStompMethod     string `json:"bof_stomp_method"`
 	IsSideloading      bool   `json:"is_sideloading"`
 	SideloadingContent string `json:"sideloading_content"`
@@ -584,9 +584,18 @@ func (p *PluginAgent) BuildPayload(profile adaptix.BuildProfile, agentProfiles [
 		if bofStompDll == "" {
 			bofStompDll = "wmp.dll"
 		}
-		bofStompDllAsync = generateConfig.BofStompDllAsync
+		// Build the pipe-separated pool string from the list; fallback to default
+		for _, dll := range generateConfig.BofStompDllsAsync {
+			dll = strings.TrimSpace(dll)
+			if dll != "" {
+				if bofStompDllAsync != "" {
+					bofStompDllAsync += "|"
+				}
+				bofStompDllAsync += dll
+			}
+		}
 		if bofStompDllAsync == "" {
-			bofStompDllAsync = "xpsservices.dll"
+			bofStompDllAsync = "xpsservices.dll|Hydrogen.dll|actxprxy.dll"
 		}
 	}
 

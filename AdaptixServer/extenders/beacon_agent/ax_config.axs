@@ -349,9 +349,13 @@ function GenerateUI(listeners_type)
     let textBofStompDll = form.create_textline("wmp.dll");
     textBofStompDll.setPlaceholder("e.g. wmp.dll, xpsservices.dll");
 
-    let labelBofStompDllAsync = form.create_label("Stomp DLL (async):");
-    let textBofStompDllAsync = form.create_textline("xpsservices.dll");
-    textBofStompDllAsync.setPlaceholder("e.g. Hydrogen.dll, xpsservices.dll");
+    let labelBofStompDllAsync = form.create_label("Stomp DLLs (async pool):");
+    let listBofStompDllAsync = form.create_list();
+    listBofStompDllAsync.addItem("xpsservices.dll");
+    listBofStompDllAsync.addItem("Hydrogen.dll");
+    listBofStompDllAsync.addItem("actxprxy.dll");
+    listBofStompDllAsync.setButtonsEnabled(true);
+    listBofStompDllAsync.setDragDropEnabled(true);
 
     let labelBofStompMethod = form.create_label("Method:");
     let comboBofStompMethod = form.create_combo();
@@ -362,9 +366,9 @@ function GenerateUI(listeners_type)
     layout_group_bof_stomp.addWidget(labelBofStompDll,      0, 0, 1, 1);
     layout_group_bof_stomp.addWidget(textBofStompDll,       0, 1, 1, 1);
     layout_group_bof_stomp.addWidget(labelBofStompDllAsync, 1, 0, 1, 1);
-    layout_group_bof_stomp.addWidget(textBofStompDllAsync,  1, 1, 1, 1);
-    layout_group_bof_stomp.addWidget(labelBofStompMethod,   2, 0, 1, 1);
-    layout_group_bof_stomp.addWidget(comboBofStompMethod,   2, 1, 1, 1);
+    layout_group_bof_stomp.addWidget(listBofStompDllAsync,  1, 1, 2, 1);
+    layout_group_bof_stomp.addWidget(labelBofStompMethod,   3, 0, 1, 1);
+    layout_group_bof_stomp.addWidget(comboBofStompMethod,   3, 1, 1, 1);
 
     let panel_group_bof_stomp = form.create_panel();
     panel_group_bof_stomp.setLayout(layout_group_bof_stomp);
@@ -554,7 +558,7 @@ function GenerateUI(listeners_type)
     container.put("iat_hiding",          checkIatHiding)
     container.put("use_bof_stomp",       group_bof_stomp)
     container.put("bof_stomp_dll",       textBofStompDll)
-    container.put("bof_stomp_dll_async", textBofStompDllAsync)
+    container.put("bof_stomp_dll_async", listBofStompDllAsync)
     container.put("bof_stomp_method",    comboBofStompMethod)
     container.put("use_proxy",           group_proxy)
     container.put("proxy_type",          comboProxyType)

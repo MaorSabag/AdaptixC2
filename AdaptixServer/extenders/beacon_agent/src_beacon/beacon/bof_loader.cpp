@@ -267,8 +267,10 @@ void CleanupSections(PCHAR* mapSections, int maxSections, LPVOID mapFunctions,
         stompCtx->cursorSize = 0;
         stompCtx->inUse      = FALSE;
 
-        // Destroy the per-execution context (unmaps DLL, frees saved bytes, etc.)
-        BofStompDestroy(stompCtx);
+        // Solo destruir el ctx si NO pertenece al pool.
+        // Los slots del pool son reutilizables — ReleaseStompSlot los devuelve.
+        if (!stompCtx->pooled)
+            BofStompDestroy(stompCtx);
 
     } else {
         // VirtualAlloc path
@@ -579,9 +581,6 @@ Packer* ObjectExecute(ULONG taskId, char* targetFuncName, unsigned char* coffFil
     PCHAR        mapSections[MAX_SECTIONS] = { 0 };
     BOF_STOMP_CTX* stompCtx   = NULL;
 
-    // Usar el sistema original de globals para el path síncrono.
-    // tls_CurrentBofContext NO se toca aquí — pertenece exclusivamente
-    // al path async (AsyncBofThreadProc). Mezclarlos rompe el monitor.
     InitBofOutputData();
     bofTaskId = taskId;
 
