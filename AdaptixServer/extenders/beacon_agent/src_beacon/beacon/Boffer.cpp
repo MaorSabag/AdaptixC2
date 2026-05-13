@@ -267,13 +267,7 @@ DWORD WINAPI AsyncBofThreadProc(LPVOID lpParameter)
     }
     ctx->mapFunctions = NULL;
 
-    ApiWin->EnterCriticalSection(&ctx->outputLock);
-    ctx->outputBuffer->Pack32(ctx->taskId);
-    ctx->outputBuffer->Pack32(50);  // COMMAND_EXEC_BOF
-    ctx->outputBuffer->Pack8(FALSE);
-    ApiWin->LeaveCriticalSection(&ctx->outputLock);
-
-    ctx->state = ASYNC_BOF_STATE_FINISHED;
+    ctx->state = ASYNC_BOF_STATE_DONE;
     tls_CurrentBofContext = NULL;
 
     if (g_AsyncBofManager)
@@ -362,12 +356,20 @@ void Boffer::ProcessAsyncBofs(Packer* outPacker)
                 ApiWin->LeaveCriticalSection(&ctx->outputLock);
             }
         } else {
+
             if (ctx->outputBuffer && ctx->outputBuffer->datasize() > 0) {
                 outPacker->PackFlatBytes(ctx->outputBuffer->data(), ctx->outputBuffer->datasize());
                 ctx->outputBuffer->Clear(TRUE);
             }
-            if (ctx->state == ASYNC_BOF_STATE_RUNNING)
+
+            if (ctx->state == ASYNC_BOF_STATE_DONE) {
+                ctx->outputBuffer->Pack32(ctx->taskId);
+                ctx->outputBuffer->Pack32(50);  // COMMAND_EXEC_BOF
+                ctx->outputBuffer->Pack8(FALSE);
+                outPacker->PackFlatBytes(ctx->outputBuffer->data(), ctx->outputBuffer->datasize());
+                ctx->outputBuffer->Clear(TRUE);
                 ctx->state = ASYNC_BOF_STATE_FINISHED;
+            }
         }
     }
 
