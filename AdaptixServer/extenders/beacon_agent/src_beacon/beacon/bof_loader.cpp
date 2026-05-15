@@ -199,33 +199,35 @@ bool AllocateSections(unsigned char* coffFile, COF_HEADER* pHeader,
     }
 
 fallback:
-    for (int i = 0; i < pHeader->NumberOfSections; i++) {
-        COF_SECTION* s = (COF_SECTION*)(coffFile + sizeof(COF_HEADER) + sizeof(COF_SECTION) * i);
-        DWORD allocSize = (DWORD)s->SizeOfRawData + UNWIND_SLOT_SIZE;
+    {
+        DWORD totalSize = 0;
+        DWORD sectionOffsets[MAX_SECTIONS] = { 0 };
 
-        mapSections[i] = (char*)ApiWin->VirtualAlloc(NULL, allocSize,
-                                                      MEM_COMMIT | MEM_RESERVE | MEM_TOP_DOWN,
-                                                      PAGE_EXECUTE_READWRITE);
-        if (!mapSections[i] && s->SizeOfRawData)
+        for (int i = 0; i < pHeader->NumberOfSections; i++) {
+            COF_SECTION* s = (COF_SECTION*)(coffFile + sizeof(COF_HEADER) + sizeof(COF_SECTION) * i);
+            sectionOffsets[i] = totalSize;
+            DWORD slotSize = ALIGN_UP((DWORD)s->SizeOfRawData + UNWIND_SLOT_SIZE, 16);
+            totalSize += slotSize;
+        }
+        totalSize += MAP_FUNCTIONS_SIZE;
+
+        char* base = (char*)ApiWin->VirtualAlloc(NULL, totalSize,
+                                                  MEM_COMMIT | MEM_RESERVE,
+                                                  PAGE_EXECUTE_READWRITE);
+        if (!base)
             return false;
 
-        memset(mapSections[i], 0, allocSize);
+        memset(base, 0, totalSize);
 
-        if (s->PointerToRawData && s->SizeOfRawData)
-            memcpy(mapSections[i], coffFile + s->PointerToRawData, s->SizeOfRawData);
-    }
-
-    *outMapFunctions = ApiWin->VirtualAlloc(NULL, MAP_FUNCTIONS_SIZE,
-                                            MEM_COMMIT | MEM_RESERVE | MEM_TOP_DOWN,
-                                            PAGE_EXECUTE_READWRITE);
-    if (!*outMapFunctions) {
         for (int i = 0; i < pHeader->NumberOfSections; i++) {
-            if (mapSections[i]) {
-                ApiWin->VirtualFree(mapSections[i], 0, MEM_RELEASE);
-                mapSections[i] = NULL;
-            }
+            COF_SECTION* s = (COF_SECTION*)(coffFile + sizeof(COF_HEADER) + sizeof(COF_SECTION) * i);
+            mapSections[i] = base + sectionOffsets[i];
+
+            if (s->PointerToRawData && s->SizeOfRawData)
+                memcpy(mapSections[i], coffFile + s->PointerToRawData, s->SizeOfRawData);
         }
-        return false;
+
+        *outMapFunctions = base + (totalSize - MAP_FUNCTIONS_SIZE);
     }
 
     return true;
@@ -273,15 +275,16 @@ void CleanupSections(PCHAR* mapSections, int maxSections, LPVOID mapFunctions,
             BofStompDestroy(stompCtx);
 
     } else {
-        // VirtualAlloc path
-        for (int i = 0; i < maxSections; i++) {
-            if (mapSections[i]) {
-                ApiWin->VirtualFree(mapSections[i], 0, MEM_RELEASE);
-                mapSections[i] = NULL;
-            }
+        // VirtualAlloc fallback path — since the fix, all sections live in a single
+        // contiguous block starting at mapSections[0]. Free only that base pointer.
+        // mapFunctions points inside the same block (last MAP_FUNCTIONS_SIZE bytes),
+        // so it must NOT be freed separately.
+        if (mapSections[0]) {
+            ApiWin->VirtualFree(mapSections[0], 0, MEM_RELEASE);
         }
-        if (mapFunctions)
-            ApiWin->VirtualFree(mapFunctions, 0, MEM_RELEASE);
+        for (int i = 0; i < maxSections; i++)
+            mapSections[i] = NULL;
+        // mapFunctions is inside the same block — already freed above, do NOT free again.
 
         if (stompCtx)
             BofStompDestroy(stompCtx);
@@ -355,11 +358,21 @@ bool ProcessRelocations(unsigned char* coffFile, COF_HEADER* pHeader, PCHAR* map
                     memcpy(mapSections[sectionIndex] + pRelocTable->VirtualAddress,
                            &bigOffset, sizeof(unsigned long long));
                 } else if (pRelocTable->Type == IMAGE_REL_AMD64_ADDR32NB) {
+                    // ADDR32NB: 32-bit image-relative offset (RVA).
+                    // The field value is an addend; the result must be the offset
+                    // from the relocation site+4 to the target symbol.
+                    // Restore the original calculation which is correct regardless
+                    // of whether sections are contiguous or scattered in memory.
                     memcpy(&offset, mapSections[sectionIndex] + pRelocTable->VirtualAddress,
                            sizeof(int));
-                    offset += (int)((char*)mapSections[pSymbol.SectionNumber - 1] -
-                                    (char*)mapSections[0]) +
-                              pSymbolTable[pRelocTable->SymbolTableIndex].Value;
+                    if (((char*)(mapSections[pSymbol.SectionNumber - 1] + offset) -
+                         (char*)(mapSections[sectionIndex] + pRelocTable->VirtualAddress + 4))
+                        > 0xffffffff) {
+                        return FALSE;
+                    }
+                    offset = (int)((char*)(mapSections[pSymbol.SectionNumber - 1] + offset) -
+                                   (char*)(mapSections[sectionIndex] + pRelocTable->VirtualAddress + 4));
+                    offset += pSymbolTable[pRelocTable->SymbolTableIndex].Value;
                     memcpy(mapSections[sectionIndex] + pRelocTable->VirtualAddress,
                            &offset, sizeof(int));
                 } else if (pRelocTable->Type == IMAGE_REL_AMD64_REL32 ||
