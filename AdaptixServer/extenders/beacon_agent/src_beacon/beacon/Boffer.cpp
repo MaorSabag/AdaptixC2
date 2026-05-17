@@ -322,9 +322,7 @@ BOOL Boffer::StopAsyncBof(ULONG taskId)
         return FALSE;
 
     if (hThread) {
-        DWORD waitResult = ApiWin->WaitForSingleObject(hThread, 3000);
-        if (waitResult == WAIT_TIMEOUT)
-            ApiNt->NtTerminateThread(hThread, 0);
+        ApiWin->WaitForSingleObject(hThread, 3000);
     }
 
     return TRUE;
@@ -411,8 +409,14 @@ void Boffer::CleanupBofContext(AsyncBofContext* ctx)
         ApiWin->WaitForSingleObject(ctx->hThread, 5000);
         DWORD exitCode = 0;
         ApiWin->GetExitCodeThread(ctx->hThread, &exitCode);
-        if (exitCode == STILL_ACTIVE)
-            ApiNt->NtTerminateThread(ctx->hThread, 0);
+        if (exitCode == STILL_ACTIVE) {
+            HMODULE hClr = ApiWin->GetModuleHandleA("clr.dll");
+            if (!hClr) hClr = ApiWin->GetModuleHandleA("coreclr.dll");
+
+            if (!hClr) {
+                ApiNt->NtTerminateThread(ctx->hThread, 0);
+            }
+        }
         ApiNt->NtClose(ctx->hThread);
         ctx->hThread = NULL;
     }
