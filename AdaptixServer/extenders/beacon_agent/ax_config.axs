@@ -345,9 +345,17 @@ function GenerateUI(listeners_type)
     //     checkIatHiding.setVisible(false);
     // }
 
-    let labelBofStompDll = form.create_label("Stomp DLL:");
+    let labelBofStompDll = form.create_label("Stomp DLL (sync):");
     let textBofStompDll = form.create_textline("wmp.dll");
     textBofStompDll.setPlaceholder("e.g. wmp.dll, xpsservices.dll");
+
+    let labelBofStompDllAsync = form.create_label("Stomp DLLs (async pool):");
+    let listBofStompDllAsync = form.create_list();
+    listBofStompDllAsync.addItem("xpsservices.dll");
+    listBofStompDllAsync.addItem("Hydrogen.dll");
+    listBofStompDllAsync.addItem("actxprxy.dll");
+    listBofStompDllAsync.setButtonsEnabled(true);
+    listBofStompDllAsync.setDragDropEnabled(true);
 
     let labelBofStompMethod = form.create_label("Method:");
     let comboBofStompMethod = form.create_combo();
@@ -355,10 +363,12 @@ function GenerateUI(listeners_type)
     comboBofStompMethod.setCurrentIndex(0);
 
     let layout_group_bof_stomp = form.create_gridlayout();
-    layout_group_bof_stomp.addWidget(labelBofStompDll,     0, 0, 1, 1);
-    layout_group_bof_stomp.addWidget(textBofStompDll,      0, 1, 1, 1);
-    layout_group_bof_stomp.addWidget(labelBofStompMethod,  1, 0, 1, 1);
-    layout_group_bof_stomp.addWidget(comboBofStompMethod,  1, 1, 1, 1);
+    layout_group_bof_stomp.addWidget(labelBofStompDll,      0, 0, 1, 1);
+    layout_group_bof_stomp.addWidget(textBofStompDll,       0, 1, 1, 1);
+    layout_group_bof_stomp.addWidget(labelBofStompDllAsync, 1, 0, 1, 1);
+    layout_group_bof_stomp.addWidget(listBofStompDllAsync,  1, 1, 2, 1);
+    layout_group_bof_stomp.addWidget(labelBofStompMethod,   3, 0, 1, 1);
+    layout_group_bof_stomp.addWidget(comboBofStompMethod,   3, 1, 1, 1);
 
     let panel_group_bof_stomp = form.create_panel();
     panel_group_bof_stomp.setLayout(layout_group_bof_stomp);
@@ -548,6 +558,7 @@ function GenerateUI(listeners_type)
     container.put("iat_hiding",          checkIatHiding)
     container.put("use_bof_stomp",       group_bof_stomp)
     container.put("bof_stomp_dll",       textBofStompDll)
+    container.put("bof_stomp_dll_async", listBofStompDllAsync)
     container.put("bof_stomp_method",    comboBofStompMethod)
     container.put("use_proxy",           group_proxy)
     container.put("proxy_type",          comboProxyType)

@@ -3,28 +3,29 @@
 #include "ApiLoader.h"
 
 typedef struct _BOF_STOMP_CTX {
-    HMODULE          hModule;
-    PVOID            mappedView;
-    SIZE_T           viewSize;
-    int              method;
-    PVOID            textBase;
-    SIZE_T           textSize;
-    PVOID            savedBytes;
-    DWORD            savedSize;
-    PVOID            pdataBase;
+    HMODULE          hModule;       // Method 0: handle from LoadLibraryEx
+    PVOID            mappedView;    // Method 1: base from NtMapViewOfSection
+    SIZE_T           viewSize;      // Method 1: size of the mapped view
+    int              method;        // 0 = LoadLibraryEx, 1 = NtCreateSection
+    PVOID            textBase;      // address of .text inside this view
+    SIZE_T           textSize;      // size of .text
+    PVOID            savedBytes;    // saved copy of original .text content
+    DWORD            savedSize;     // == textSize
+    PVOID            pdataBase;     // address of .pdata inside this view
     DWORD            pdataSize;
-    PVOID            savedPdata;
-    DWORD            pdataCapacity;
-    PVOID            moduleBase;
+    PVOID            savedPdata;    // saved copy of original .pdata
+    DWORD            pdataCapacity; // max RUNTIME_FUNCTIONs that fit
+    PVOID            moduleBase;    // == mappedView or hModule cast to PVOID
     BOOL             pdataStomped;
-    PVOID            cursorBase;
-    DWORD            cursorSize;
+    PVOID            cursorBase;    // start of the region written for this BOF
+    DWORD            cursorSize;    // bytes written for this BOF
     BOOL             inUse;
-    CRITICAL_SECTION lock;
     BOOL             initialised;
-    PVOID            fakeLdrEntry;
+    PVOID            fakeLdrEntry;  // Method 1: synthetic PEB LDR entry
+    BOOL             pooled;        // TRUE = pertenece al pool, CleanupSections NO destruye
 } BOF_STOMP_CTX;
 
-extern BOF_STOMP_CTX g_BofStomp;
+BOF_STOMP_CTX* BofStompCreate(const char* sacrificialDll, int method);
 
-BOOL InitBofStomp(const char* sacrificialDll, int method);
+// Release all resources owned by ctx and free the struct itself.
+void BofStompDestroy(BOF_STOMP_CTX* ctx);

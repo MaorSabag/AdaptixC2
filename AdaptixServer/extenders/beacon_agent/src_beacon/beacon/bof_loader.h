@@ -27,9 +27,6 @@ typedef struct {
     LPVOID proc;
 } BOF_API;
 
-extern Packer* bofOutputPacker;
-extern int     bofOutputCount;
-extern ULONG   bofTaskId;
 
 #ifndef _IMAGE_RUNTIME_FUNCTION_ENTRY
 typedef struct _BOF_RUNTIME_FUNCTION {
@@ -42,56 +39,74 @@ typedef _IMAGE_RUNTIME_FUNCTION_ENTRY BOF_RUNTIME_FUNCTION;
 #endif
 
 typedef struct COF_HEADER {
-	short Machine;
-	short NumberOfSections;
-	int   TimeDateStamp;
-	int   PointerToSymbolTable;
-	int   NumberOfSymbols;
-	short SizeOfOptionalHeader;
-	short Characteristics;
+    short Machine;
+    short NumberOfSections;
+    int   TimeDateStamp;
+    int   PointerToSymbolTable;
+    int   NumberOfSymbols;
+    short SizeOfOptionalHeader;
+    short Characteristics;
 } COF_HEADER;
 
 #pragma pack(push,1)
 
 typedef struct COF_SECTION {
-	char  Name[8];
-	int   VirtualSize;
-	int   VirtualAddress;
-	int   SizeOfRawData;
-	int   PointerToRawData;
-	int   PointerToRelocations;
-	int   PointerToLineNumbers;
-	short NumberOfRelocations;
-	short NumberOfLinenumbers;
-	int   Characteristics;
+    char  Name[8];
+    int   VirtualSize;
+    int   VirtualAddress;
+    int   SizeOfRawData;
+    int   PointerToRawData;
+    int   PointerToRelocations;
+    int   PointerToLineNumbers;
+    short NumberOfRelocations;
+    short NumberOfLinenumbers;
+    int   Characteristics;
 } COF_SECTION;
 
 typedef struct COF_RELOCATION {
-	int   VirtualAddress;
-	int   SymbolTableIndex;
-	short Type;
+    int   VirtualAddress;
+    int   SymbolTableIndex;
+    short Type;
 } COF_RELOCATION;
 
 typedef struct COF_SYMBOL {
-	union {
-		char cName[8];
-		int  dwName[2];
-	}     Name;
-	int   Value;
-	short SectionNumber;
-	short Type;
-	char  StorageClass;
-	char  NumberOfAuxSymbols;
+    union {
+        char cName[8];
+        int  dwName[2];
+    }     Name;
+    int   Value;
+    short SectionNumber;
+    short Type;
+    char  StorageClass;
+    char  NumberOfAuxSymbols;
 } COF_SYMBOL;
 
 #pragma pack(pop)
 
+// Globals para el path síncrono (mismo esquema que el original).
+// El path async usa ctx->outputBuffer via tls_CurrentBofContext en su hilo.
+extern Packer* bofOutputPacker;
+extern ULONG   bofTaskId;
 void InitBofOutputData();
 
-Packer* ObjectExecute(ULONG taskId, char* targetFuncName, unsigned char* coffFile, unsigned int cofFileSize, unsigned char* args, int argsSize);
-bool    AllocateSections(unsigned char* coffFile, COF_HEADER* pHeader, PCHAR* mapSections, LPVOID* outMapFunctions);
-void    CleanupSections(PCHAR* mapSections, int maxSections, LPVOID mapFunctions);
-bool ProcessRelocations(unsigned char* coffFile, COF_HEADER* pHeader, PCHAR* mapSections, COF_SYMBOL* pSymbolTable, LPVOID* mapFunctions);
-void ExecuteProc(char* entryFuncName, unsigned char* args, int argsSize,COF_SYMBOL* pSymbolTable, COF_HEADER* pHeader, PCHAR* mapSections);
+// stompCtx is NULL when stomping is disabled or when BofStompCreate failed
+// (caller falls back to VirtualAlloc automatically).
+Packer* ObjectExecute(ULONG taskId, char* targetFuncName, unsigned char* coffFile,
+                      unsigned int cofFileSize, unsigned char* args, int argsSize);
+
+bool AllocateSections(unsigned char* coffFile, COF_HEADER* pHeader,
+                      PCHAR* mapSections, LPVOID* outMapFunctions,
+                      BOF_STOMP_CTX* stompCtx);
+
+void CleanupSections(PCHAR* mapSections, int maxSections, LPVOID mapFunctions,
+                     BOF_STOMP_CTX* stompCtx);
+
+bool ProcessRelocations(unsigned char* coffFile, COF_HEADER* pHeader, PCHAR* mapSections,
+                        COF_SYMBOL* pSymbolTable, LPVOID* mapFunctions);
+
+void ExecuteProc(char* entryFuncName, unsigned char* args, int argsSize,
+                 COF_SYMBOL* pSymbolTable, COF_HEADER* pHeader, PCHAR* mapSections,
+                 BOF_STOMP_CTX* stompCtx);
+
 char* PrepareEntryName(char* targetFuncName);
 void  FreeFunctionName(char* targetFuncName);
